@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "agent": {"name": "support-agent"},
+  "default": {"decision": "DENY", "reason": "Undiscovered action; fail closed."},
+  "rules": [
+    {
+      "id": "search-customer",
+      "decision": "ALLOW",
+      "when": [{"field": "action", "op": "eq", "value": "search_customer"}],
+      "risk": 5,
+      "blast_radius": "single_record",
+      "irreversible": false,
+      "reason": "Read-only customer lookup."
+    }
+  ]
+}
