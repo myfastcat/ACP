@@ -1,9 +1,9 @@
 # VCL Products
 
-This repository stores products created by the Venture Creation Loop.
+This repository stores user-facing products created by the Venture Creation Loop.
 
-The loop itself, its frameworks, rules, sensing system, and operating logic live in the `web4` repository.
+The loop itself, its frameworks, rules, market sensing, product metadata, experiments, progress, and internal decisions live in the `web4` repository under `projects/venture-creation-loop/`.
 
 ## Products
 
-- [`carrycontext/`](./carrycontext/) — portable context capsules for moving ongoing work between AI tools.
+No active products yet. The next product is being created from zero by the Venture Creation Loop.
