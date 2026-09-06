@@ -1,0 +1,9 @@
+{
+  "output": [
+    {
+      "type": "function_call",
+      "name": "search_customer",
+      "arguments": "{\"customer_id\": \"c123\"}"
+    }
+  ]
+}
