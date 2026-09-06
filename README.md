@@ -6,4 +6,4 @@ The loop itself, its frameworks, rules, market sensing, product metadata, experi
 
 ## Products
 
-No active products yet. The next product is being created from zero by the Venture Creation Loop.
+No active products yet.
