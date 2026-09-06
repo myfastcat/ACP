@@ -15,6 +15,7 @@ DEFAULT_TRACE_GLOBS = [
     "**/*tool-call*.json",
     "**/*tool_calls*.json",
 ]
+DEFAULT_ACP_INSTALL = "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,11 @@ def run_check(root: str | Path, config: dict, contract: dict) -> dict:
     return report
 
 
-def render_github_actions(test_command: str, python_version: str = "3.12") -> str:
+def render_github_actions(
+    test_command: str,
+    python_version: str = "3.12",
+    acp_install: str = DEFAULT_ACP_INSTALL,
+) -> str:
     if not test_command.strip():
         raise ValueError("test_command is required to generate CI")
     return f'''name: ACP Authority Gate
@@ -106,7 +111,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install .
-          python -m pip install agent-control-plane
+          python -m pip install "{acp_install}"
       - name: Run existing agent/integration tests unchanged
         run: {test_command}
       - name: Validate authority contract
