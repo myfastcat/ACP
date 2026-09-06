@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -16,10 +17,12 @@ DEFAULT_TRACE_GLOBS = [
 ]
 DEFAULT_ACP_INSTALL = "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
 
+
 @dataclass(frozen=True)
 class CollectedTrace:
     path: str
     events: tuple[dict, ...]
+
 
 def default_config(contract: str = ".acp/authority.json") -> dict:
     return {
@@ -28,12 +31,15 @@ def default_config(contract: str = ".acp/authority.json") -> dict:
         "trace_globs": list(DEFAULT_TRACE_GLOBS),
         "fail_on_approval": True,
         "require_events": True,
-        "notes": "Non-invasive mode: point trace_globs at JSON artifacts already emitted by normal agent/integration tests.",
+        "zero_code_adapters": ["openai-agents"],
+        "notes": "Non-invasive mode: ACP can auto-capture OpenAI Agents SDK function spans; other frameworks may point trace_globs at artifacts already emitted by normal tests.",
     }
+
 
 def _is_ignored(path: Path) -> bool:
     ignored = {".git", ".venv", "venv", "site-packages", "node_modules"}
     return any(part in ignored for part in path.parts)
+
 
 def collect_trace_files(root: str | Path, globs: Iterable[str]) -> list[CollectedTrace]:
     base = Path(root).resolve()
@@ -58,6 +64,7 @@ def collect_trace_files(root: str | Path, globs: Iterable[str]) -> list[Collecte
         raise ValueError(f"Trace files matched but none contained supported tool-call events. {detail}".strip())
     return collected
 
+
 def run_check(root: str | Path, config: dict, contract: dict) -> dict:
     traces = collect_trace_files(root, config.get("trace_globs", DEFAULT_TRACE_GLOBS))
     events: list[dict] = []
@@ -68,16 +75,18 @@ def run_check(root: str | Path, config: dict, contract: dict) -> dict:
         sources.append({"path": trace.path, "events": len(trace.events), "start_index": start})
     if config.get("require_events", True) and not events:
         raise ValueError(
-            "No tool-call events found. Run the repository's normal agent/integration tests first, "
-            "or configure .acp/config.json trace_globs to point at their existing JSON trace/event artifacts."
+            "No tool-call events found. For OpenAI Agents SDK, run tests through the generated ACP zero-code bootstrap; "
+            "for other frameworks configure .acp/config.json trace_globs to point at existing JSON trace/event artifacts."
         )
     report = evaluate_trace(contract, events)
     report["sources"] = sources
     return report
 
+
 def render_github_actions(test_command: str, python_version: str = "3.12", acp_install: str = DEFAULT_ACP_INSTALL) -> str:
     if not test_command.strip():
         raise ValueError("test_command is required to generate CI")
+    wrapped_test = "python -m agent_control_plane.zero_code_runner -- sh -lc " + shlex.quote(test_command)
     return f'''name: ACP Authority Gate
 
 on:
@@ -97,8 +106,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install .
           python -m pip install "{acp_install}"
-      - name: Run existing agent/integration tests unchanged
-        run: {test_command}
+      - name: Run existing agent/integration tests with ACP zero-code bootstrap
+        run: {wrapped_test}
       - name: Validate authority contract
         run: acp validate .acp/authority.json
       - name: ACP authority gate
