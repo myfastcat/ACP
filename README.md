@@ -6,4 +6,4 @@ The loop itself, its frameworks, rules, market sensing, product metadata, experi
 
 ## Products
 
-- [`agent-ready-map/`](./agent-ready-map/) — map a workflow into Agent-ready, Copilot, and Human-gated steps before deploying AI agents.
+No active products yet.
