@@ -50,10 +50,11 @@ class ZeroCodeIntegrationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "No tool-call events found"):
                 run_check(Path(tmp), default_config(), CONTRACT)
 
-    def test_ci_runs_existing_tests_before_acp_gate(self):
+    def test_ci_runs_existing_tests_through_zero_code_bootstrap_before_gate(self):
         workflow = render_github_actions("python -m unittest discover -s tests -v")
-        self.assertIn("Run existing agent/integration tests unchanged", workflow)
-        self.assertIn("run: python -m unittest discover -s tests -v", workflow)
+        self.assertIn("Run existing agent/integration tests with ACP zero-code bootstrap", workflow)
+        self.assertIn("agent_control_plane.zero_code_runner", workflow)
+        self.assertIn("python -m unittest discover -s tests -v", workflow)
         self.assertIn("acp check --config .acp/config.json", workflow)
         self.assertNotIn("@acp", workflow)
 
