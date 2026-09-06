@@ -2,7 +2,7 @@
 
 **Executable authority contracts for production AI agents with a non-invasive CI integration path.**
 
-ACP turns agent authority boundaries into deterministic, testable policy. The default product direction is **non-invasive**: integrate at the repository/CI boundary and consume trace artifacts already produced by normal agent/integration tests instead of requiring ACP decorators, wrappers, or changes to every tool.
+ACP turns agent authority boundaries into deterministic, testable policy. The default product direction is **non-invasive**: integrate at the repository/CI boundary instead of requiring ACP decorators, wrappers, or changes to every tool.
 
 ## What the user does
 
@@ -12,16 +12,18 @@ For the non-invasive path, the user only needs to:
 2. Run `acp init` to discover tools and generate a conservative authority contract draft.
 3. Review the generated authority contract and confirm real business rules such as `ALLOW`, `REQUIRE_APPROVAL`, `DENY`, amount thresholds, environments, tenants, and approval groups.
 4. Keep running the repository's existing agent/integration tests unchanged.
-5. Ensure those tests/frameworks already emit JSON tool-call / trace artifacts, or edit `.acp/config.json` so `trace_globs` points at those existing artifacts.
-6. Commit `.acp/authority.json`, `.acp/config.json`, and the generated GitHub Actions workflow.
-7. Treat new CI authority failures as explicit authority changes that must be reviewed.
+5. Commit `.acp/authority.json`, `.acp/config.json`, and the generated GitHub Actions workflow.
+6. Treat new CI authority failures as explicit authority changes that must be reviewed.
+
+For **OpenAI Agents SDK**, the generated CI now uses ACP's zero-code bootstrap. The application source does not import ACP and does not need to emit a separate trace file itself. ACP registers an additional SDK trace processor at Python startup and records function spans into `.acp/traces/` for the authority gate. The Agents SDK tracing system supports additional processors and records function/tool-call spans by default. 
+
+For other frameworks, the current fallback remains configuration-only: point `.acp/config.json` `trace_globs` at JSON trace/event artifacts already emitted by existing tests.
 
 The user should **not** need to add `@acp.trace`, wrap `agent.run()`, modify every tool, manually convert calls to `{action, context}`, or hand-author a trace for every CI run.
 
-## Quick start: generate the CI gate
+## Quick start
 
 ```bash
-# From the root of the user's agent repository
 acp init . \
   --agent support-agent \
   --ci \
@@ -32,26 +34,25 @@ ACP generates:
 
 ```text
 .acp/authority.json        # reviewed source of truth for agent authority
-.acp/config.json           # where ACP looks for existing trace artifacts
+.acp/config.json           # ACP integration/gate configuration
 .github/workflows/acp.yml  # CI authority gate
 ```
-
-Then the user reviews `.acp/authority.json` and, if necessary, adjusts `.acp/config.json` to match the trace files already produced by normal tests.
 
 The generated CI performs:
 
 ```text
 checkout
-  → install the user's project + ACP
-  → run the user's existing tests unchanged
+  → install project + ACP
+  → run existing tests through ACP zero-code bootstrap
+  → OpenAI Agents function spans automatically become trace artifacts
+     OR collect existing configured trace artifacts for other frameworks
   → validate .acp/authority.json
-  → locate existing JSON trace artifacts
   → normalize tool calls to {action, context}
   → deterministic authority evaluation
   → CI PASS / REQUIRE_APPROVAL / DENY
 ```
 
-The gate can also be run locally:
+The gate can also be run locally after traces exist:
 
 ```bash
 acp check --config .acp/config.json
@@ -77,8 +78,6 @@ Every generated contract is marked `review_required: true`.
 
 ## Where authority comes from
 
-Authority has two inputs:
-
 ```text
 repo/tool discovery + ACP conservative draft
                     +
@@ -93,10 +92,10 @@ Static discovery reduces setup work; it does not grant production authority. The
 
 ACP distinguishes two sources:
 
-1. **Observed traces/events** — JSON artifacts already emitted by normal development, staging, or integration-test agent runs.
+1. **Observed traces/events** — for OpenAI Agents SDK, ACP can now auto-capture function spans during normal test execution using the SDK's tracing processor extension point; for other frameworks ACP can collect existing JSON trace artifacts.
 2. **Synthetic/replay security traces** — optional fixtures deliberately constructed to exercise dangerous or boundary actions.
 
-The current non-invasive collector searches configurable JSON globs, including `.acp/traces/**/*.json`, `**/*trace*.json`, `**/*tool-call*.json`, and `**/*tool_calls*.json`. It then uses ACP's normalizer to consume common shapes such as generic `{tool, arguments}`, OpenAI-style `function_call`, and nested `tool_calls`, `output`, `messages`, `events`, `items`, and `trace` containers.
+The collector searches configurable JSON globs, including `.acp/traces/**/*.json`, `**/*trace*.json`, `**/*tool-call*.json`, and `**/*tool_calls*.json`. It normalizes common shapes such as generic `{tool, arguments}`, OpenAI-style `function_call`, and nested `tool_calls`, `output`, `messages`, `events`, `items`, and `trace` containers.
 
 Normalized events look like:
 
@@ -104,7 +103,7 @@ Normalized events look like:
 {"action": "issue_refund", "context": {"amount": 42}}
 ```
 
-If no supported tool-call events are found, `acp check` fails explicitly instead of pretending capture succeeded.
+If required tool-call events are not found, `acp check` fails explicitly instead of pretending capture succeeded.
 
 ## CI behavior
 
@@ -117,24 +116,18 @@ If no supported tool-call events are found, `acp check` fails explicitly instead
 | 3 | approval required when `fail_on_approval` is enabled |
 | 4 | invalid config / contract / trace input, or required events were not found |
 
-The generated config enables `fail_on_approval` and `require_events` by default.
-
 ## Integration hierarchy
-
-ACP uses this priority order:
 
 ```text
 Level 1 — Zero-code framework adapter
-framework-native trace/event/log/test artifact → ACP automatically
+OpenAI Agents SDK (shipped): SDK tracing processor → ACP automatically
 
 Level 2 — Configuration-only adapter (shipped)
-user points .acp/config.json at existing trace artifacts → ACP
+existing framework trace artifacts → .acp/config.json → ACP
 
 Level 3 — Explicit instrumentation fallback
 only when the framework exposes no usable observable output
 ```
-
-The newly shipped `acp init --ci` + `acp check` path implements Level 2 without changing application code. Framework-specific Level 1 adapters are still future work and should only be advertised once automated tests prove they work without ACP imports in application source.
 
 ## Design principles
 
@@ -152,10 +145,11 @@ Shipped today:
 - deterministic authority evaluation;
 - non-invasive trace-artifact collection;
 - `acp check` authority gate;
-- `acp init --ci` generation of `.acp/config.json` and GitHub Actions CI.
+- `acp init --ci` generation of config and GitHub Actions CI;
+- OpenAI Agents SDK zero-code function-span capture during CI test execution.
 
-Next: framework-specific Level 1 zero-code adapters that auto-detect existing native tracing/event mechanisms. Runtime enforcement remains a later layer because it sits directly in the production execution path and has different reliability/security requirements.
+Next: add more Level 1 framework adapters, starting with MCP/LangGraph where there is a stable non-invasive event boundary. Runtime enforcement remains a later layer because it sits directly in the production execution path and has different reliability/security requirements.
 
 ## Feedback wanted
 
-Would you install ACP if integration meant `acp init --ci` + review the generated authority contract + normal CI, with no changes to your agent business code? Please use GitHub Issue #3 and tell us which agent framework and trace/event artifact your team already produces.
+Would you install ACP if integration meant `acp init --ci` + review the generated authority contract + normal CI, with no changes to your agent business code? Please use GitHub Issue #3 and tell us which agent framework your team uses.
