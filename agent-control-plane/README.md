@@ -2,30 +2,80 @@
 
 **Executable authority contracts for production AI agents.**
 
-Most agent-governance documents describe what an agent *should* do. Agent Control Plane (ACP) turns that boundary into a deterministic contract that can run before deployment and in CI.
+ACP turns agent authority boundaries into deterministic, testable policy. It can now reduce the integration tax by discovering common Python agent tools, generating a conservative draft contract, normalizing common tool-call traces, and evaluating them in CI.
 
-An **Agent Authority Contract** answers, action by action:
-
-- **ALLOW** — the agent owns this action.
-- **REQUIRE_APPROVAL** — the agent may propose it, but a named human group must approve.
-- **DENY** — the action is outside delegated authority.
-
-ACP also reports risk score, blast radius, irreversible actions, approval load, and a CI pass/fail decision.
-
-## 60-second demo
+## Quick start: from agent repo to authority check
 
 Requires Python 3.10+ and has no runtime dependencies.
 
 ```bash
-python -m agent_control_plane.cli validate examples/procurement-contract.json
-python -m agent_control_plane.cli eval examples/procurement-contract.json examples/procurement-trace.json
+# From the root of an agent repository
+acp init . --agent support-agent --out authority.json
+
+# Review the generated authority.json. Generated contracts are drafts and fail closed.
+
+# Normalize a framework-native trace
+acp normalize raw-trace.json --out acp-trace.json
+
+# Evaluate it
+acp eval authority.json acp-trace.json
 ```
 
-The sample procurement agent can read vendors and create small requests, needs approval for medium purchases, and is prohibited from moving money or deleting vendor master data.
+You can also evaluate a raw supported trace directly:
 
-Because the sample trace attempts `payment.execute`, ACP exits with code `2`. This makes the authority boundary enforceable in CI rather than merely documented.
+```bash
+acp eval authority.json raw-trace.json --normalize
+```
+
+## What `acp init` does
+
+ACP statically scans Python files and currently recognizes common decorated tools:
+
+- OpenAI Agents SDK style `@function_tool`
+- MCP style `@mcp.tool()` / `@server.tool()`
+- generic `@tool`
+
+For every discovered tool ACP generates a draft rule and a source inventory. The heuristic is deliberately conservative:
+
+- read/search/list/get style tools → `ALLOW`
+- obvious state-changing tools → `REQUIRE_APPROVAL`
+- destructive or money-moving tools → `DENY`
+- unknown semantics → `REQUIRE_APPROVAL`
+- undiscovered actions → default `DENY`
+
+Every generated contract is marked `review_required: true`. ACP does **not** pretend static naming heuristics are sufficient for production authorization; the user reviews the proposed boundary instead of authoring it from scratch.
+
+## Trace normalization
+
+ACP accepts its native event format:
+
+```json
+{"action": "issue_refund", "context": {"amount": 42}}
+```
+
+It also normalizes common shapes such as:
+
+```json
+{"tool": "issue_refund", "arguments": {"amount": 42}}
+```
+
+and OpenAI-style function calls:
+
+```json
+{"type": "function_call", "name": "issue_refund", "arguments": "{\"amount\": 42}"}
+```
+
+Nested `tool_calls`, `output`, `messages`, `events`, `items`, and `trace` containers are walked automatically.
 
 ## Contract model
+
+An **Agent Authority Contract** answers, action by action:
+
+- **ALLOW** — the agent owns this action.
+- **REQUIRE_APPROVAL** — the agent may propose it, but a human must approve.
+- **DENY** — the action is outside delegated authority.
+
+Example:
 
 ```json
 {
@@ -45,8 +95,6 @@ Because the sample trace attempts `payment.execute`, ACP exits with code `2`. Th
 
 Supported condition operators: `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `exists`.
 
-If no rule matches, ACP **fails closed** by default.
-
 ## CI behavior
 
 ```bash
@@ -60,22 +108,24 @@ acp eval authority.json replay-trace.json
 | 3 | approval required and `--fail-on-approval` was used |
 | 4 | invalid contract / input |
 
-A practical flow is: record an agent's proposed or replayed tool calls → normalize them to `{action, context}` events → evaluate them against the authority contract → block deployment when the trace crosses the boundary.
+The intended flow is now:
+
+```text
+agent repo → acp init → review contract → capture raw tool trace → acp normalize/eval → CI gate
+```
 
 ## Design principles
 
-ACP is deliberately **not an LLM judge**. The final authority boundary is deterministic, inspectable, versionable and testable. LLMs can help draft contracts or normalize traces, but the actual permission decision should not depend on another probabilistic model.
+ACP is deliberately **not an LLM judge**. The final authority decision is deterministic, inspectable, versionable and testable. Automation reduces setup effort, but generated contracts stay explicit and reviewable.
 
-The current risk score combines rule risk, declared blast radius, irreversibility, and transaction amount. The score is advisory; ALLOW / REQUIRE_APPROVAL / DENY is the enforcement primitive.
+The current risk score combines rule risk, declared blast radius, irreversibility, and transaction amount. The score is advisory; `ALLOW / REQUIRE_APPROVAL / DENY` is the enforcement primitive.
+
+## Current scope
+
+This version focuses on reducing setup friction for pre-deployment/CI enforcement. It is not yet a runtime gateway, identity system, secrets manager, centralized approval service, or general policy-as-code replacement.
+
+The next production step is a runtime enforcement SDK/middleware that evaluates every proposed tool execution before the tool is actually called.
 
 ## Feedback wanted
 
-The first validation question is intentionally narrow:
-
-> **Would you put an executable authority contract in CI before deploying an autonomous agent?**
-
-Please use GitHub Issue #3 and share the kind of agent you run, its highest-risk action, and whether ALLOW / REQUIRE_APPROVAL / DENY is expressive enough for your workflow.
-
-## Status
-
-v0.1 is an MVP for design-partner validation. It is not yet a runtime gateway, identity system, secrets manager, or general policy-as-code replacement.
+Would you connect an agent repository and review an automatically generated authority contract before deployment? Please use GitHub Issue #3 and share the framework you use, the tools ACP should discover automatically, and which actions are hardest to classify safely.
