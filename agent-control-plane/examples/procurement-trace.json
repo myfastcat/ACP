@@ -1,0 +1,6 @@
+[
+  {"action":"vendor.read","context":{"vendor_id":"v-17"}},
+  {"action":"purchase.request.create","context":{"amount":220,"currency":"USD"}},
+  {"action":"purchase.request.create","context":{"amount":1800,"currency":"USD"}},
+  {"action":"payment.execute","context":{"amount":1800,"currency":"USD"}}
+]
