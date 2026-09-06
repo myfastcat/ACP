@@ -4,28 +4,44 @@
 
 ACP turns agent authority boundaries into deterministic, testable policy. The default product direction is **non-invasive**: integrate at the repository/CI boundary instead of requiring ACP decorators, wrappers, or changes to every tool.
 
-## What the user does
+## Installation
 
-For the non-invasive path, the user only needs to:
+ACP currently requires **Python 3.10+**. It is not yet published to PyPI, so install it directly from this repository:
 
-1. Install ACP in the repo/CI environment.
-2. Run `acp init` to discover tools and generate a conservative authority contract draft.
-3. Review the generated authority contract and confirm real business rules such as `ALLOW`, `REQUIRE_APPROVAL`, `DENY`, amount thresholds, environments, tenants, and approval groups.
-4. Keep running the repository's existing agent/integration tests unchanged.
-5. Commit `.acp/authority.json`, `.acp/config.json`, and the generated GitHub Actions workflow.
-6. Treat new CI authority failures as explicit authority changes that must be reviewed.
+```bash
+python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
+```
 
-For **OpenAI Agents SDK**, the generated CI now uses ACP's zero-code bootstrap. The application source does not import ACP and does not need to emit a separate trace file itself. ACP registers an additional SDK trace processor at Python startup and records function spans into `.acp/traces/` for the authority gate. The Agents SDK tracing system supports additional processors and records function/tool-call spans by default. 
+Verify the installation:
 
-For other frameworks, the current fallback remains configuration-only: point `.acp/config.json` `trace_globs` at JSON trace/event artifacts already emitted by existing tests.
+```bash
+acp --help
+```
 
-The user should **not** need to add `@acp.trace`, wrap `agent.run()`, modify every tool, manually convert calls to `{action, context}`, or hand-author a trace for every CI run.
+The installed package exposes the `acp` command. If `acp` is not found, make sure the Python environment where you installed ACP is the same environment used by your terminal/CI job.
 
-## Quick start
+### Add ACP to an existing Agent repository
+
+Start from the root of your existing Agent project:
+
+```bash
+cd my-agent
+```
+
+Run one-time setup. Replace the test command with the command your project already uses:
 
 ```bash
 acp init . \
-  --agent support-agent \
+  --agent my-agent \
+  --ci \
+  --test-command "pytest -q"
+```
+
+For a project that uses `unittest`, for example:
+
+```bash
+acp init . \
+  --agent my-agent \
   --ci \
   --test-command "python -m unittest discover -s tests -v"
 ```
@@ -33,30 +49,118 @@ acp init . \
 ACP generates:
 
 ```text
-.acp/authority.json        # reviewed source of truth for agent authority
-.acp/config.json           # ACP integration/gate configuration
-.github/workflows/acp.yml  # CI authority gate
+my-agent/
+├── .acp/
+│   ├── authority.json        # authority contract you review
+│   └── config.json           # ACP integration/gate configuration
+├── .github/
+│   └── workflows/
+│       └── acp.yml           # generated GitHub Actions authority gate
+└── ... your existing Agent code
 ```
 
-The generated CI performs:
+### The one thing you must review
+
+Open:
 
 ```text
-checkout
-  → install project + ACP
-  → run existing tests through ACP zero-code bootstrap
-  → OpenAI Agents function spans automatically become trace artifacts
-     OR collect existing configured trace artifacts for other frameworks
-  → validate .acp/authority.json
-  → normalize tool calls to {action, context}
-  → deterministic authority evaluation
-  → CI PASS / REQUIRE_APPROVAL / DENY
+.acp/authority.json
 ```
 
-The gate can also be run locally after traces exist:
+`acp init` discovers tools and creates a **conservative draft**, not final production authorization. Review the real business boundary for every important action.
+
+For example:
+
+```text
+search_customer      → ALLOW
+update_customer      → REQUIRE_APPROVAL
+issue_refund         → DENY
+delete_customer      → DENY
+```
+
+Business-specific conditions such as amount thresholds, environment, tenant, data sensitivity, or approval group must reflect your actual policy. For example, your team might decide:
+
+```text
+refund < $100          → ALLOW
+refund $100–$1000      → REQUIRE_APPROVAL
+refund > $1000         → DENY
+```
+
+ACP intentionally does not grant final production authority just because a function name looks safe.
+
+### Commit the ACP configuration
+
+After reviewing the authority contract:
+
+```bash
+git add .acp .github/workflows/acp.yml
+git commit -m "Add ACP authority gate"
+git push
+```
+
+From then on, keep developing and testing your Agent normally. The generated GitHub Actions workflow runs the authority gate on changes.
+
+### OpenAI Agents SDK: no application-code instrumentation
+
+For **OpenAI Agents SDK**, ACP's generated CI uses the zero-code bootstrap. You do **not** need to:
+
+- add `@acp.trace` or `@acp.tool` decorators;
+- wrap `agent.run()` in an ACP context manager;
+- modify each tool implementation;
+- manually convert tool calls to `{action, context}`;
+- hand-write a trace file for every CI run.
+
+Keep your existing Agent tests unchanged. ACP registers an additional SDK trace processor at Python startup, records function/tool spans into `.acp/traces/`, normalizes them, and evaluates them against the reviewed authority contract.
+
+The resulting flow is:
+
+```text
+normal Agent tests
+      ↓
+OpenAI Agents SDK function/tool spans
+      ↓
+ACP zero-code trace adapter
+      ↓
+{action, context}
+      ↓
+.acp/authority.json
+      ↓
+ALLOW / REQUIRE_APPROVAL / DENY
+      ↓
+GitHub CI gate
+```
+
+For other frameworks, ACP currently falls back to configuration-only integration: point `.acp/config.json` `trace_globs` at JSON trace/event artifacts already emitted by the framework or your existing tests. Explicit application instrumentation is the last-resort fallback, not the default product experience.
+
+### Run the gate locally
+
+After a test run has produced observable trace events, you can run:
 
 ```bash
 acp check --config .acp/config.json
 ```
+
+Exit codes:
+
+| Exit code | Meaning |
+|---|---|
+| 0 | no denied actions and no approval failures |
+| 2 | at least one denied action |
+| 3 | approval required when `fail_on_approval` is enabled |
+| 4 | invalid config / contract / trace input, or required events were not found |
+
+## What the user does
+
+For the normal non-invasive path, the complete responsibility is:
+
+1. Install ACP in the repo/CI environment.
+2. Run `acp init ... --ci --test-command "..."` once.
+3. Review `.acp/authority.json` and confirm the real business authority boundary.
+4. Commit `.acp/authority.json`, `.acp/config.json`, and `.github/workflows/acp.yml`.
+5. Continue running the project's normal Agent/integration tests.
+6. Review a PR when ACP reports a new `REQUIRE_APPROVAL` or `DENY` result.
+
+That is the intended setup. For a supported zero-code framework, ACP-specific changes to Agent business code are not part of normal installation.
 
 ## Tool discovery
 
@@ -92,7 +196,7 @@ Static discovery reduces setup work; it does not grant production authority. The
 
 ACP distinguishes two sources:
 
-1. **Observed traces/events** — for OpenAI Agents SDK, ACP can now auto-capture function spans during normal test execution using the SDK's tracing processor extension point; for other frameworks ACP can collect existing JSON trace artifacts.
+1. **Observed traces/events** — for OpenAI Agents SDK, ACP can auto-capture function spans during normal test execution using the SDK's tracing processor extension point; for other frameworks ACP can collect existing JSON trace artifacts.
 2. **Synthetic/replay security traces** — optional fixtures deliberately constructed to exercise dangerous or boundary actions.
 
 The collector searches configurable JSON globs, including `.acp/traces/**/*.json`, `**/*trace*.json`, `**/*tool-call*.json`, and `**/*tool_calls*.json`. It normalizes common shapes such as generic `{tool, arguments}`, OpenAI-style `function_call`, and nested `tool_calls`, `output`, `messages`, `events`, `items`, and `trace` containers.
@@ -104,17 +208,6 @@ Normalized events look like:
 ```
 
 If required tool-call events are not found, `acp check` fails explicitly instead of pretending capture succeeded.
-
-## CI behavior
-
-`acp check --config .acp/config.json` exits with:
-
-| Exit code | Meaning |
-|---|---|
-| 0 | no denied actions and no approval failures |
-| 2 | at least one denied action |
-| 3 | approval required when `fail_on_approval` is enabled |
-| 4 | invalid config / contract / trace input, or required events were not found |
 
 ## Integration hierarchy
 
