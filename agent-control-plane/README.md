@@ -1,61 +1,65 @@
 # Agent Control Plane
 
-**Executable authority contracts for production AI agents — with a zero-code integration target.**
+**Executable authority contracts for production AI agents with a non-invasive CI integration path.**
 
-ACP turns agent authority boundaries into deterministic, testable policy. The default product experience is **non-invasive**: ACP should observe framework-native traces/events and integrate at the repository/CI boundary rather than requiring users to add ACP decorators, wrappers, or `with acp.trace(...)` calls to agent business code.
+ACP turns agent authority boundaries into deterministic, testable policy. The default product direction is **non-invasive**: integrate at the repository/CI boundary and consume trace artifacts already produced by normal agent/integration tests instead of requiring ACP decorators, wrappers, or changes to every tool.
 
-## User experience
+## What the user does
 
-The target flow is:
+For the non-invasive path, the user only needs to:
+
+1. Install ACP in the repo/CI environment.
+2. Run `acp init` to discover tools and generate a conservative authority contract draft.
+3. Review the generated authority contract and confirm real business rules such as `ALLOW`, `REQUIRE_APPROVAL`, `DENY`, amount thresholds, environments, tenants, and approval groups.
+4. Keep running the repository's existing agent/integration tests unchanged.
+5. Ensure those tests/frameworks already emit JSON tool-call / trace artifacts, or edit `.acp/config.json` so `trace_globs` points at those existing artifacts.
+6. Commit `.acp/authority.json`, `.acp/config.json`, and the generated GitHub Actions workflow.
+7. Treat new CI authority failures as explicit authority changes that must be reviewed.
+
+The user should **not** need to add `@acp.trace`, wrap `agent.run()`, modify every tool, manually convert calls to `{action, context}`, or hand-author a trace for every CI run.
+
+## Quick start: generate the CI gate
+
+```bash
+# From the root of the user's agent repository
+acp init . \
+  --agent support-agent \
+  --ci \
+  --test-command "python -m unittest discover -s tests -v"
+```
+
+ACP generates:
 
 ```text
-agent repo
-  → acp init
-  → ACP detects supported framework/tools
-  → ACP generates a conservative authority contract draft
-  → user reviews/approves the authority boundary
-  → existing agent/integration tests run unchanged
-  → ACP adapter consumes framework-native trace/event output
-  → normalize to {action, context}
+.acp/authority.json        # reviewed source of truth for agent authority
+.acp/config.json           # where ACP looks for existing trace artifacts
+.github/workflows/acp.yml  # CI authority gate
+```
+
+Then the user reviews `.acp/authority.json` and, if necessary, adjusts `.acp/config.json` to match the trace files already produced by normal tests.
+
+The generated CI performs:
+
+```text
+checkout
+  → install the user's project + ACP
+  → run the user's existing tests unchanged
+  → validate .acp/authority.json
+  → locate existing JSON trace artifacts
+  → normalize tool calls to {action, context}
   → deterministic authority evaluation
   → CI PASS / REQUIRE_APPROVAL / DENY
 ```
 
-### What the user needs to do
-
-1. **Install ACP in the repository/CI environment.** No ACP imports are required in agent business code for a supported zero-code adapter.
-2. **Run `acp init` from the agent repository root.** ACP discovers supported Python tools and drafts the authority contract.
-3. **Review the generated authority contract.** The user confirms the real business boundary: which actions are `ALLOW`, `REQUIRE_APPROVAL`, or `DENY`, including amount/environment/tenant constraints where relevant. ACP must not infer final production authorization solely from function names.
-4. **Tell ACP where existing framework-native traces/events come from when auto-detection cannot determine it.** This is configuration, not application-code instrumentation. Supported adapters should prefer existing framework tracing, callbacks, logs, test artifacts, or event streams.
-5. **Keep normal agent/integration tests running.** Users should not write ACP-specific traces by hand for the normal path. Existing test executions are the source of observed tool calls. Teams may additionally keep synthetic security/replay traces for important boundary cases.
-6. **Commit the reviewed authority contract and ACP CI configuration.** Pull requests then run the authority gate automatically.
-7. **Review CI failures when authority changes.** A new denied or approval-required action is treated as an authority regression/change requiring an explicit decision.
-
-For a supported framework, users should **not** need to:
-
-- add `@acp.trace` / `@acp.tool` decorators;
-- wrap `agent.run()` in ACP code;
-- modify every tool implementation;
-- manually convert tool calls to `{action, context}`;
-- hand-author a trace for every CI run.
-
-If ACP cannot observe a framework without application instrumentation, it must report that zero-code capture is unsupported and fall back explicitly to a configured trace file/source. It must not silently claim capture succeeded.
-
-## Quick start
-
-Requires Python 3.10+ and has no runtime dependencies.
+The gate can also be run locally:
 
 ```bash
-# From the root of an agent repository
-acp init . --agent support-agent --out .acp/authority.json
-
-# Review .acp/authority.json before using it as a production authority boundary.
-
-# Current generic fallback when a framework-native trace file already exists:
-acp eval .acp/authority.json raw-trace.json --normalize --fail-on-approval
+acp check --config .acp/config.json
 ```
 
-`acp init` currently discovers common Python decorated tools:
+## Tool discovery
+
+`acp init` currently recognizes common Python decorated tools:
 
 - OpenAI Agents SDK style `@function_tool`
 - MCP style `@mcp.tool()` / `@server.tool()`
@@ -87,79 +91,71 @@ Static discovery reduces setup work; it does not grant production authority. The
 
 ## Where traces come from
 
-ACP distinguishes two trace sources:
+ACP distinguishes two sources:
 
-1. **Observed framework-native traces/events** — emitted by normal development/staging/integration-test agent execution. Zero-code adapters should consume these without modifying application code.
-2. **Synthetic/replay security traces** — optional, deliberately constructed boundary cases used to prove that dangerous actions remain denied or approval-gated.
+1. **Observed traces/events** — JSON artifacts already emitted by normal development, staging, or integration-test agent runs.
+2. **Synthetic/replay security traces** — optional fixtures deliberately constructed to exercise dangerous or boundary actions.
 
-ACP normalizes supported shapes to:
+The current non-invasive collector searches configurable JSON globs, including `.acp/traces/**/*.json`, `**/*trace*.json`, `**/*tool-call*.json`, and `**/*tool_calls*.json`. It then uses ACP's normalizer to consume common shapes such as generic `{tool, arguments}`, OpenAI-style `function_call`, and nested `tool_calls`, `output`, `messages`, `events`, `items`, and `trace` containers.
+
+Normalized events look like:
 
 ```json
 {"action": "issue_refund", "context": {"amount": 42}}
 ```
 
-Common input shapes already accepted by the normalizer include generic `{tool, arguments}`, OpenAI-style `function_call`, and nested `tool_calls`, `output`, `messages`, `events`, `items`, and `trace` containers.
+If no supported tool-call events are found, `acp check` fails explicitly instead of pretending capture succeeded.
 
-## CI integration
+## CI behavior
 
-The desired customer CI gate is:
-
-```text
-checkout
-  → install ACP
-  → validate reviewed authority contract
-  → run the repository's existing agent/integration tests
-  → collect/locate supported framework-native trace output
-  → ACP normalize + evaluate
-  → fail CI on DENY (and optionally REQUIRE_APPROVAL)
-```
-
-The current generic evaluation command is:
-
-```bash
-acp eval .acp/authority.json raw-trace.json --normalize --fail-on-approval
-```
-
-Exit codes:
+`acp check --config .acp/config.json` exits with:
 
 | Exit code | Meaning |
 |---|---|
-| 0 | no denied actions |
+| 0 | no denied actions and no approval failures |
 | 2 | at least one denied action |
-| 3 | approval required and `--fail-on-approval` was used |
-| 4 | invalid contract / input |
+| 3 | approval required when `fail_on_approval` is enabled |
+| 4 | invalid config / contract / trace input, or required events were not found |
 
-ACP's own repository CI tests the evaluator and deny path. Customer zero-code framework adapters and automatic customer-CI generation are the next implementation layer; this README intentionally distinguishes that target experience from capabilities already shipped.
+The generated config enables `fail_on_approval` and `require_events` by default.
 
 ## Integration hierarchy
 
 ACP uses this priority order:
 
 ```text
-Level 1 — Zero-code adapter
-framework-native trace/event/log/test artifact → ACP
+Level 1 — Zero-code framework adapter
+framework-native trace/event/log/test artifact → ACP automatically
 
-Level 2 — Configuration-only adapter
-user points ACP at an existing trace/event source → ACP
+Level 2 — Configuration-only adapter (shipped)
+user points .acp/config.json at existing trace artifacts → ACP
 
 Level 3 — Explicit instrumentation fallback
-only when the framework exposes no observable interface
+only when the framework exposes no usable observable output
 ```
 
-ACP must not make Level 3 the default product experience.
+The newly shipped `acp init --ci` + `acp check` path implements Level 2 without changing application code. Framework-specific Level 1 adapters are still future work and should only be advertised once automated tests prove they work without ACP imports in application source.
 
 ## Design principles
 
-ACP is deliberately **not an LLM judge**. The final authority decision is deterministic, inspectable, versionable and testable. Automation reduces setup effort, but generated contracts stay explicit and reviewable.
+ACP is deliberately **not an LLM judge**. The final authority decision is deterministic, inspectable, versionable and testable. Automation reduces setup effort, but generated contracts remain explicit and reviewable.
 
 The risk score is advisory; `ALLOW / REQUIRE_APPROVAL / DENY` is the enforcement primitive.
 
 ## Current scope
 
-Shipped today: static tool discovery, conservative contract drafting, trace normalization, deterministic evaluation, and ACP's own CI checks.
+Shipped today:
 
-Next: framework-specific zero-code trace adapters and generated customer CI configuration. Runtime enforcement remains a later layer because it sits directly in the production execution path and has different reliability/security requirements.
+- static tool discovery;
+- conservative contract drafting;
+- common trace normalization;
+- deterministic authority evaluation;
+- non-invasive trace-artifact collection;
+- `acp check` authority gate;
+- `acp init --ci` generation of `.acp/config.json` and GitHub Actions CI.
+
+Next: framework-specific Level 1 zero-code adapters that auto-detect existing native tracing/event mechanisms. Runtime enforcement remains a later layer because it sits directly in the production execution path and has different reliability/security requirements.
 
 ## Feedback wanted
 
-Would you install ACP if integration meant `acp init` + review the generated authority contract + normal CI, with no changes to your agent business code? Please use GitHub Issue #3 and tell us which agent framework and tracing/event mechanism your team uses.
+Would you install ACP if integration meant `acp init --ci` + review the generated authority contract + normal CI, with no changes to your agent business code? Please use GitHub Issue #3 and tell us which agent framework and trace/event artifact your team already produces.
