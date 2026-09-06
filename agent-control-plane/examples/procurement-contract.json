@@ -1,0 +1,57 @@
+{
+  "schema_version": "1",
+  "agent": {"name": "procurement-agent", "owner": "finance-ops"},
+  "default": {"decision": "DENY", "reason": "Unrecognized action; fail closed."},
+  "rules": [
+    {
+      "id": "read-vendor-data",
+      "decision": "ALLOW",
+      "when": [{"field": "action", "op": "eq", "value": "vendor.read"}],
+      "risk": 2,
+      "blast_radius": "single_record",
+      "reason": "Read-only supplier lookup is within delegated authority."
+    },
+    {
+      "id": "small-purchase-request",
+      "decision": "ALLOW",
+      "when": [
+        {"field": "action", "op": "eq", "value": "purchase.request.create"},
+        {"field": "context.amount", "op": "lte", "value": 500}
+      ],
+      "risk": 8,
+      "blast_radius": "team",
+      "reason": "Low-value purchase requests are pre-authorized."
+    },
+    {
+      "id": "medium-purchase-approval",
+      "decision": "REQUIRE_APPROVAL",
+      "when": [
+        {"field": "action", "op": "eq", "value": "purchase.request.create"},
+        {"field": "context.amount", "op": "gt", "value": 500},
+        {"field": "context.amount", "op": "lte", "value": 5000}
+      ],
+      "approval_group": "finance-managers",
+      "risk": 18,
+      "blast_radius": "team",
+      "reason": "Medium-value requests require finance approval."
+    },
+    {
+      "id": "payment-deny",
+      "decision": "DENY",
+      "when": [{"field": "action", "op": "eq", "value": "payment.execute"}],
+      "risk": 40,
+      "blast_radius": "external",
+      "irreversible": true,
+      "reason": "The agent may prepare purchases but may never move money."
+    },
+    {
+      "id": "vendor-delete-deny",
+      "decision": "DENY",
+      "when": [{"field": "action", "op": "eq", "value": "vendor.delete"}],
+      "risk": 35,
+      "blast_radius": "organization",
+      "irreversible": true,
+      "reason": "Destructive master-data operations are outside agent authority."
+    }
+  ]
+}
