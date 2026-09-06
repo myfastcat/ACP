@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "contract": ".acp/authority.json",
+  "trace_globs": [
+    ".acp/traces/**/*.json",
+    "**/*trace*.json",
+    "**/*tool-call*.json",
+    "**/*tool_calls*.json"
+  ],
+  "fail_on_approval": true,
+  "require_events": true
+}
