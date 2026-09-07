@@ -30,7 +30,7 @@ A production incident starts from a redacted tool-call trace exported from your 
 acp incident import raw-trace.json --incident-id INC-42
 ```
 
-ACP stores it at `.acp/incidents/INC-42.json`, where later CI runs discover it automatically. You make only the business decision about what must never happen again; ACP updates the fixture for you:
+ACP stores the historical incident at `.acp/incidents/INC-42.json`. You make only the business decision about what must hold from now on; ACP updates the fixture for you:
 
 ```bash
 acp incident assert .acp/incidents/INC-42.json --must-not-occur delete_customer
@@ -43,13 +43,15 @@ acp incident assert .acp/incidents/INC-42.json --must-occur approval_check
 acp incident assert .acp/incidents/INC-42.json --max-occurrences send_email --max 1
 ```
 
-Commit `.acp/incidents/INC-42.json`. From then on, the normal generated `acp check` CI gate replays every fixture matching `.acp/incidents/*.json`; any failed incident invariant exits `2` and blocks CI. You do not add a separate workflow step for each incident.
+Commit `.acp/incidents/INC-42.json`. From then on, the normal generated `acp check` CI gate discovers every fixture matching `.acp/incidents/*.json` and evaluates its invariant against the **current CI run's observed tool-call events**. The original incident events remain in the fixture as historical evidence; they do not fail the build forever. Only recurrence in current behavior causes an incident regression failure. Any failed incident invariant exits `2` and blocks CI. You do not add a separate workflow step for each incident.
 
-To inspect one incident locally or create an evidence pack:
+To inspect one historical incident locally or create an evidence pack:
 
 ```bash
 acp incident replay .acp/incidents/INC-42.json --evidence incident.evidence.json
 ```
+
+`acp incident replay` without a current trace inspects the stored incident evidence itself. The automatic CI regression path is `acp check`, which evaluates committed incident invariants against current observed events.
 
 ## Authority decisions
 
@@ -72,7 +74,7 @@ For frameworks not automatically captured, point `.acp/config.json` `trace_globs
 
 ## What ACP automates vs. what you decide
 
-ACP automates trace normalization, fixture creation, fixture storage convention, CI discovery, replay, exit codes and evidence. You decide the actual authority boundary and incident invariant because those are business/security decisions. For production incidents, ACP currently expects a trace exported from your existing logging or observability system; direct production-observability connectors are not yet built in.
+ACP automates trace normalization, fixture creation, fixture storage convention, CI discovery, current-run regression evaluation, exit codes and evidence. You decide the actual authority boundary and incident invariant because those are business/security decisions. For production incidents, ACP currently expects a trace exported from your existing logging or observability system; direct production-observability connectors are not yet built in.
 
 ## Scope
 
