@@ -20,6 +20,24 @@ def normalize_incident(raw, incident_id="incident"):
     return build_fixture(normalize_trace(raw), incident_id)
 
 
+def add_assertion(fixture, kind: str, action: str, maximum: int | None = None):
+    if kind not in {"must_not_occur", "must_occur", "max_occurrences"}:
+        raise ReplayError(f"unsupported assertion type: {kind}")
+    if not action:
+        raise ReplayError("assertion action is required")
+    assertion = {"type": kind, "action": action}
+    if kind == "max_occurrences":
+        if maximum is None or maximum < 0:
+            raise ReplayError("max_occurrences requires --max >= 0")
+        assertion["max"] = maximum
+    assertions = fixture.setdefault("assertions", [])
+    if not isinstance(assertions, list):
+        raise ReplayError("fixture assertions must be a list")
+    if assertion not in assertions:
+        assertions.append(assertion)
+    return fixture
+
+
 def evaluate_fixture(fixture):
     failures = []
     events = fixture.get("events", [])
@@ -55,6 +73,22 @@ def evaluate_fixture(fixture):
         "event_count": len(events),
         "fixture_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
     }
+
+
+def evaluate_incident_files(root: str | Path, patterns) -> list[dict]:
+    base = Path(root).resolve()
+    paths: dict[Path, None] = {}
+    for pattern in patterns:
+        for path in base.glob(pattern):
+            if path.is_file():
+                paths[path.resolve()] = None
+    results = []
+    for path in sorted(paths):
+        fixture = load(path)
+        report = evaluate_fixture(fixture)
+        report["path"] = str(path.relative_to(base))
+        results.append(report)
+    return results
 
 
 def evidence_pack(fixture, report):
