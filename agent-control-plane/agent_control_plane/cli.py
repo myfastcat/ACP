@@ -7,7 +7,7 @@ from .discovery import discover_python_tools, draft_contract
 from .engine import ContractError, evaluate_trace, validate_contract
 from .integration import default_config, render_github_actions, run_check
 from .normalize import TraceNormalizationError, normalize_trace
-from .replay import ReplayError, dump as replay_dump, evaluate_fixture, evidence_pack, load as replay_load, normalize_incident
+from .replay import ReplayError, add_assertion, dump as replay_dump, evaluate_fixture, evidence_pack, load as replay_load, normalize_incident
 
 
 def _load(path: str):
@@ -29,11 +29,13 @@ def _write_text(path: str, value: str) -> None:
 
 def _print_report(report: dict) -> None:
     s = report["summary"]
-    print(f"events={s['events']} allow={s['counts']['ALLOW']} approval={s['counts']['REQUIRE_APPROVAL']} deny={s['counts']['DENY']} avg_risk={s['average_risk']} ci_pass={str(s['ci_pass']).lower()}")
+    print(f"events={s['events']} allow={s['counts']['ALLOW']} approval={s['counts']['REQUIRE_APPROVAL']} deny={s['counts']['DENY']} incident_regressions={s.get('incident_regressions', 0)} incident_failures={s.get('incident_failures', 0)} avg_risk={s['average_risk']} ci_pass={str(s['ci_pass']).lower()}")
     for source in report.get("sources", []):
         print(f"source={source['path']} events={source['events']}")
     for r in report["results"]:
         print(f"[{r['decision']}] {r['action']} <- {r['rule_id']} (risk={r['risk_score']}) {r['reason']}")
+    for incident in report.get("incidents", []):
+        print(f"incident={incident['incident_id']} passed={str(incident['passed']).lower()} path={incident['path']} failures={len(incident['failures'])}")
 
 
 def main(argv=None) -> int:
@@ -61,17 +63,26 @@ def main(argv=None) -> int:
     evaluate.add_argument("--fail-on-approval", action="store_true")
     evaluate.add_argument("--normalize", action="store_true", help="Normalize a raw framework trace before evaluation")
 
-    check = sub.add_parser("check", help="Collect existing trace artifacts and run the authority gate without app instrumentation")
+    check = sub.add_parser("check", help="Run authority and committed incident regression gates")
     check.add_argument("--config", default=".acp/config.json")
     check.add_argument("--json", action="store_true")
 
     incident = sub.add_parser("incident", help="Convert agent incidents into deterministic regression fixtures")
     incident_sub = incident.add_subparsers(dest="incident_cmd", required=True)
-    incident_import = incident_sub.add_parser("import", help="Normalize an incident trace into an editable ACP fixture")
+    incident_import = incident_sub.add_parser("import", help="Normalize an incident trace into a CI-discovered ACP fixture")
     incident_import.add_argument("trace")
     incident_import.add_argument("--incident-id", default="incident")
-    incident_import.add_argument("--out", default="incident.fixture.json")
-    incident_replay = incident_sub.add_parser("replay", help="Replay incident assertions and optionally write an evidence pack")
+    incident_import.add_argument("--out", default=None, help="Fixture path; defaults to .acp/incidents/<incident-id>.json")
+
+    incident_assert = incident_sub.add_parser("assert", help="Add a business invariant without hand-editing JSON")
+    incident_assert.add_argument("fixture")
+    assertion_group = incident_assert.add_mutually_exclusive_group(required=True)
+    assertion_group.add_argument("--must-not-occur", dest="must_not_occur", metavar="ACTION")
+    assertion_group.add_argument("--must-occur", dest="must_occur", metavar="ACTION")
+    assertion_group.add_argument("--max-occurrences", dest="max_occurrences", metavar="ACTION")
+    incident_assert.add_argument("--max", type=int, default=None, help="Required with --max-occurrences")
+
+    incident_replay = incident_sub.add_parser("replay", help="Replay one incident fixture and optionally write an evidence pack")
     incident_replay.add_argument("fixture")
     incident_replay.add_argument("--json", action="store_true")
     incident_replay.add_argument("--evidence")
@@ -90,7 +101,8 @@ def main(argv=None) -> int:
                     raise ValueError("--test-command is required with --ci so ACP can run your existing tests unchanged")
                 _write(".acp/config.json", default_config(args.out))
                 _write_text(".github/workflows/acp.yml", render_github_actions(args.test_command))
-                generated.extend([".acp/config.json", ".github/workflows/acp.yml"])
+                Path(".acp/incidents").mkdir(parents=True, exist_ok=True)
+                generated.extend([".acp/config.json", ".github/workflows/acp.yml", ".acp/incidents/"])
             print(f"discovered={len(tools)} frameworks={','.join(frameworks)} review_required=true generated={','.join(generated)}")
             return 0
 
@@ -103,8 +115,20 @@ def main(argv=None) -> int:
         if args.cmd == "incident":
             if args.incident_cmd == "import":
                 fixture = normalize_incident(replay_load(args.trace), args.incident_id)
-                replay_dump(args.out, fixture)
-                print(f"events={len(fixture['events'])} fixture={args.out}")
+                out = args.out or f".acp/incidents/{args.incident_id}.json"
+                replay_dump(out, fixture)
+                print(f"events={len(fixture['events'])} fixture={out} next=acp incident assert {out} --must-not-occur <ACTION>")
+                return 0
+            if args.incident_cmd == "assert":
+                fixture = replay_load(args.fixture)
+                if args.must_not_occur:
+                    add_assertion(fixture, "must_not_occur", args.must_not_occur)
+                elif args.must_occur:
+                    add_assertion(fixture, "must_occur", args.must_occur)
+                else:
+                    add_assertion(fixture, "max_occurrences", args.max_occurrences, args.max)
+                replay_dump(args.fixture, fixture)
+                print(f"fixture={args.fixture} assertions={len(fixture.get('assertions', []))} ci_discovery=true")
                 return 0
             fixture = replay_load(args.fixture)
             report = evaluate_fixture(fixture)
@@ -127,7 +151,7 @@ def main(argv=None) -> int:
                 print(json.dumps(report, indent=2))
             else:
                 _print_report(report)
-            if report["summary"]["counts"]["DENY"] > 0:
+            if report["summary"]["counts"]["DENY"] > 0 or report["summary"].get("incident_failures", 0) > 0:
                 return 2
             if config.get("fail_on_approval", True) and report["summary"]["counts"]["REQUIRE_APPROVAL"] > 0:
                 return 3
