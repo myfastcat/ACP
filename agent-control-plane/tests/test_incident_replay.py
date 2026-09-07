@@ -49,7 +49,10 @@ def test_run_check_replays_incident_invariant_against_current_events(tmp_path):
         "schema_version": "1",
         "agent": {"name": "test"},
         "default": {"decision": "ALLOW"},
-        "rules": [],
+        "rules": [
+            {"id": "allow-lookup", "decision": "ALLOW", "when": [{"field": "action", "value": "lookup_customer"}]},
+            {"id": "allow-delete-for-regression-test", "decision": "ALLOW", "when": [{"field": "action", "value": "delete_customer"}]},
+        ],
     }
 
     # The historical incident contained delete_customer, but the fixed current run does not.
@@ -59,8 +62,10 @@ def test_run_check_replays_incident_invariant_against_current_events(tmp_path):
     assert fixed["summary"]["incident_failures"] == 0
     assert fixed["incidents"][0]["mode"] == "current_observed_events"
 
-    # If the bad behavior returns in a later run, the committed incident invariant fails CI.
+    # If the bad behavior returns in a later run, the committed incident invariant fails CI
+    # even though the authority policy itself allows the action.
     (traces / "run.json").write_text(json.dumps([{"action": "lookup_customer", "context": {}}, {"action": "delete_customer", "context": {}}]))
     regressed = run_check(tmp_path, default_config(), contract)
+    assert regressed["summary"]["counts"]["DENY"] == 0
     assert regressed["summary"]["incident_failures"] == 1
     assert regressed["incidents"][0]["passed"] is False
