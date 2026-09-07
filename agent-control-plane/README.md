@@ -1,6 +1,6 @@
 # Agent Control Plane (ACP)
 
-**Catch AI-agent authority regressions automatically in CI.** ACP discovers tools, captures supported agent traces, and checks them against your `ALLOW / REQUIRE_APPROVAL / DENY` policy.
+**Keep AI agents inside their authority boundary—and turn incidents into deterministic CI regressions.** ACP combines authority contracts, trace capture/discovery, policy gates, incident replay and evidence in one product.
 
 ## Quick start
 
@@ -11,103 +11,64 @@ python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=age
 acp init . --ci --test-command "pytest -q"
 ```
 
-Replace `pytest -q` only if your project uses a different test command that exercises the agent.
+Replace `pytest -q` only if your project uses a different test command that exercises the agent. `--ci` generates ACP config and the GitHub Actions gate.
 
-`acp init` is ACP-specific:
-- `.`: scan the current repository.
-- `--ci`: generate ACP config + GitHub Actions gate.
-- `--test-command`: command ACP should run in CI to exercise your agent.
-
-It generates:
-
-```text
-.acp/authority.json
-.acp/config.json
-.github/workflows/acp.yml
-```
-
-## One decision you must make
-
-Review `.acp/authority.json` and classify what your agent may do:
-
-```json
-{
-  "agent": "customer-support-agent",
-  "default": "REQUIRE_APPROVAL",
-  "rules": [
-    {"id": "read", "action": "read_*", "decision": "ALLOW", "reason": "read only"},
-    {"id": "write", "action": "send_*", "decision": "REQUIRE_APPROVAL", "reason": "external side effect"},
-    {"id": "delete", "action": "delete_*", "decision": "DENY", "reason": "destructive"}
-  ]
-}
-```
-
-Use your real tool/action names. `default` applies when no rule matches; keeping it `REQUIRE_APPROVAL` is the conservative starting point.
-
-Then:
+Review the generated `.acp/authority.json`, then:
 
 ```bash
 acp validate .acp/authority.json
 acp check
 ```
 
-## What happens automatically in CI
+ACP's generated CI runs your tests, captures supported tool calls, discovers traces, validates the authority contract, evaluates observed actions, and passes/fails CI. OpenAI Agents SDK tool spans are captured automatically during the generated CI run.
 
-Push the generated files. The workflow automatically:
+## Turn an incident into a regression
 
-```text
-run your tests
-→ capture supported tool calls
-→ find traces
-→ validate .acp/authority.json
-→ evaluate every observed action
-→ pass/fail CI
+Given a redacted incident trace:
+
+```bash
+acp incident import raw-trace.json --incident-id INC-42
 ```
 
-For **OpenAI Agents SDK**, ACP automatically captures function/tool spans during the generated CI run—no ACP decorator or `agent.run()` wrapper required.
+This writes `incident.fixture.json`. Add the invariant that must hold from now on:
 
-For other frameworks, point `.acp/config.json` `trace_globs` at JSON traces your tests already produce. ACP then discovers and normalizes them automatically.
-
-Default trace search includes:
-
-```text
-.acp/traces/**/*.json
-**/*trace*.json
-**/*tool-call*.json
-**/*tool_calls*.json
+```json
+"assertions": [
+  {"type": "must_not_occur", "action": "delete_customer"}
+]
 ```
 
-No tool-call events = failure by default, not a false pass.
+Then replay it:
+
+```bash
+acp incident replay incident.fixture.json --evidence incident.evidence.json
+```
+
+Supported assertions are `must_not_occur`, `must_occur`, and `max_occurrences`. The evidence pack includes a deterministic SHA-256 fixture fingerprint and can be retained with CI artifacts.
+
+## Authority decisions
+
+ACP contracts classify actions as `ALLOW`, `REQUIRE_APPROVAL`, or `DENY`. Keep the default at `REQUIRE_APPROVAL` when you have not explicitly decided an action's authority.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
-| `0` | pass |
-| `2` | `DENY` action observed |
-| `3` | approval-required action observed and configured to fail |
-| `4` | invalid config/input or required trace missing |
+| `0` | gate/replay passed |
+| `2` | denied authority action or incident regression failed |
+| `3` | approval-required action configured to fail CI |
+| `4` | invalid/missing input, config, contract or required trace |
 
-## Advanced commands
+## Trace support
 
-```bash
-acp normalize raw-trace.json --out acp-trace.json
-acp eval .acp/authority.json acp-trace.json --fail-on-approval
-```
+Default discovery includes `.acp/traces/**/*.json`, `**/*trace*.json`, `**/*tool-call*.json`, and `**/*tool_calls*.json`. No tool-call events fails by default rather than silently passing.
 
-`normalize` converts a raw/framework trace into ACP events. `eval` checks a specific trace against a contract. `--fail-on-approval` makes `REQUIRE_APPROVAL` return exit `3`.
+For frameworks not automatically captured, point `.acp/config.json` `trace_globs` at JSON traces your tests already emit.
 
 ## Scope
 
-ACP is a deterministic CI authority gate over observed actions. It does not invent your business authority policy, provide a human approval UI, or replace runtime authorization.
+ACP is a deterministic control/regression layer over observed agent actions. It does not invent your business authority policy, prove a source trace is complete/authentic, provide a human approval UI, or replace runtime authorization/observability.
 
 ## Feedback
 
-Share a redacted real authority boundary in [Issue #3](https://github.com/myfastcat/VCL/issues/3):
-
-```text
-AUTONOMOUS: search_customer, read_ticket
-APPROVAL: update_customer, send_email
-FORBIDDEN: delete_customer, transfer_money
-FRAMEWORK: OpenAI Agents SDK / MCP / LangGraph / other
-```
+Share a redacted authority boundary or incident trace/invariant in [Issue #3](https://github.com/myfastcat/VCL/issues/3).
