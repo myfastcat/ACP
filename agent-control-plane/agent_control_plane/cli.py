@@ -117,7 +117,8 @@ def main(argv=None) -> int:
                 fixture = normalize_incident(replay_load(args.trace), args.incident_id)
                 out = args.out or f".acp/incidents/{args.incident_id}.json"
                 replay_dump(out, fixture)
-                print(f"events={len(fixture['events'])} fixture={out} next=acp incident assert {out} --must-not-occur <ACTION>")
+                incident_events = fixture.get("incident_events", fixture.get("events", []))
+                print(f"events={len(incident_events)} fixture={out} next=acp incident assert {out} --must-not-occur <ACTION>")
                 return 0
             if args.incident_cmd == "assert":
                 fixture = replay_load(args.fixture)
