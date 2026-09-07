@@ -51,6 +51,13 @@ def normalize_event(item: dict[str, Any]) -> dict[str, Any] | None:
             "context": _parse_arguments(item["function"].get("arguments")),
         }
 
+    # Common exported trace shape: tool_calls: [{"name": "...", "arguments": {...}}]
+    if isinstance(item.get("name"), str) and ("arguments" in item or "args" in item):
+        return {
+            "action": item["name"],
+            "context": _parse_arguments(item.get("arguments", item.get("args"))),
+        }
+
     return None
 
 
