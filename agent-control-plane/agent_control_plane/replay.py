@@ -12,11 +12,16 @@ class ReplayError(ValueError):
 
 
 def build_fixture(events, incident_id="incident"):
-    return {"schema": "acp-incident/v1", "incident_id": incident_id, "events": events, "assertions": []}
+    return {
+        "schema": "acp-incident/v1",
+        "incident_id": incident_id,
+        "incident_events": events,
+        "assertions": [],
+    }
 
 
 def normalize_incident(raw, incident_id="incident"):
-    """Normalize a framework/native trace and wrap it as an ACP incident fixture."""
+    """Normalize a framework/native incident trace into a durable regression fixture."""
     return build_fixture(normalize_trace(raw), incident_id)
 
 
@@ -38,11 +43,27 @@ def add_assertion(fixture, kind: str, action: str, maximum: int | None = None):
     return fixture
 
 
-def evaluate_fixture(fixture):
-    failures = []
-    events = fixture.get("events", [])
+def _fixture_incident_events(fixture):
+    # Backward compatibility with early acp-incident/v1 fixtures that used `events`.
+    events = fixture.get("incident_events", fixture.get("events", []))
     if not isinstance(events, list):
-        raise ReplayError("fixture events must be a list")
+        raise ReplayError("fixture incident_events must be a list")
+    return events
+
+
+def evaluate_fixture(fixture, observed_events=None):
+    """Evaluate incident invariants.
+
+    When observed_events is supplied (the CI path), assertions are evaluated against
+    the current run's tool-call events. The original incident trace remains in the
+    fixture as evidence/context only. Without observed_events, replay evaluates the
+    original incident events for inspection/backward-compatible CLI behavior.
+    """
+    failures = []
+    incident_events = _fixture_incident_events(fixture)
+    events = incident_events if observed_events is None else observed_events
+    if not isinstance(events, list):
+        raise ReplayError("observed events must be a list")
 
     for assertion in fixture.get("assertions", []):
         if not isinstance(assertion, dict):
@@ -71,11 +92,13 @@ def evaluate_fixture(fixture):
         "passed": not failures,
         "failures": failures,
         "event_count": len(events),
+        "incident_event_count": len(incident_events),
+        "mode": "current_observed_events" if observed_events is not None else "incident_evidence",
         "fixture_sha256": hashlib.sha256(canonical.encode()).hexdigest(),
     }
 
 
-def evaluate_incident_files(root: str | Path, patterns) -> list[dict]:
+def evaluate_incident_files(root: str | Path, patterns, observed_events=None) -> list[dict]:
     base = Path(root).resolve()
     paths: dict[Path, None] = {}
     for pattern in patterns:
@@ -85,7 +108,7 @@ def evaluate_incident_files(root: str | Path, patterns) -> list[dict]:
     results = []
     for path in sorted(paths):
         fixture = load(path)
-        report = evaluate_fixture(fixture)
+        report = evaluate_fixture(fixture, observed_events=observed_events)
         report["path"] = str(path.relative_to(base))
         results.append(report)
     return results
