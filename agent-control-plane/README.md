@@ -1,84 +1,91 @@
 # Agent Control Plane (ACP)
 
-**Keep AI agents inside their authority boundary—and turn incidents into deterministic CI regressions.** ACP combines authority contracts, trace capture/discovery, policy gates, incident replay and evidence in one product.
+**ACP is a CI safety gate for AI agents.** You tell ACP what your agent is allowed to do and which past incident must never recur. On every pull request, CI runs the agent tests, ACP observes the tool calls, and the build is blocked when the agent crosses its authority boundary or repeats a known incident.
 
-## Quick start
+## What a customer does
 
-Python 3.10+ required. From your agent repository:
+### 1. Add ACP to CI once
+
+From the agent repository, run the one-time setup:
 
 ```bash
 python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
 acp init . --ci --test-command "pytest -q"
 ```
 
-Replace `pytest -q` only if your project uses a different test command that exercises the agent. `--ci` generates ACP config, `.acp/incidents/`, and the GitHub Actions gate.
+Use your real test command if it is not `pytest -q`. Commit the generated `.acp/` configuration and GitHub Actions workflow.
 
-Review the generated `.acp/authority.json`, then:
+### 2. Define the business authority boundary
 
-```bash
-acp validate .acp/authority.json
-acp check
+Review `.acp/authority.json` and decide which agent actions are:
+
+- `ALLOW` — the agent may do it automatically.
+- `REQUIRE_APPROVAL` — a human/business approval is required.
+- `DENY` — the agent must not do it.
+
+This is the main customer decision. ACP should automate the technical enforcement; it should not invent your business permissions.
+
+### 3. Let CI enforce it
+
+After setup, developers keep their normal workflow: change code and open/push a pull request. They do **not** need to run ACP commands for every change.
+
+The generated CI gate automatically:
+
+1. runs the customer's existing agent tests;
+2. captures supported agent tool calls (OpenAI Agents SDK spans are captured automatically);
+3. discovers the resulting traces;
+4. evaluates every observed action against `.acp/authority.json`;
+5. loads committed incident regression rules from `.acp/incidents/*.json`;
+6. evaluates those incident invariants against the **current CI run's** observed tool calls;
+7. fails the build when an action is denied, requires approval under a fail-on-approval policy, or a historical incident behavior returns.
+
+So the normal customer experience is:
+
+```text
+Developer opens PR
+        ↓
+Existing agent tests run in CI
+        ↓
+ACP automatically observes tool calls
+        ↓
+Authority boundary + known incident regressions are checked
+        ↓
+PASS → PR can continue
+FAIL → CI shows the safety/regression failure
 ```
 
-ACP's generated CI runs your tests, captures supported tool calls, discovers traces, evaluates the authority contract, auto-discovers committed incident regressions, and fails CI if either an authority rule or an incident invariant fails. OpenAI Agents SDK tool spans are captured automatically during the generated CI run.
+## What happens after a real incident
 
-## Turn an incident into a permanent CI regression
+Suppose production accidentally sends the same customer email twice. The customer exports/redacts that incident trace from its existing logging or observability system and records the business invariant once, for example: `send_email` may occur at most once in this scenario.
 
-A production incident starts from a redacted tool-call trace exported from your existing logs or observability system. Import it:
+That incident rule is committed under `.acp/incidents/`. From then on there is **no new CI wiring and no per-PR incident command**. Every normal CI run automatically checks current agent behavior against all committed incident invariants. If the duplicate-email behavior returns, ACP fails CI even though `send_email` itself is normally an allowed action.
 
-```bash
-acp incident import raw-trace.json --incident-id INC-42
-```
+ACP currently automates fixture storage/discovery and CI regression enforcement. Direct connectors that automatically ingest production incidents from observability platforms are not yet built, so exporting the source production trace is still an integration boundary.
 
-ACP stores the historical incident at `.acp/incidents/INC-42.json`. You make only the business decision about what must hold from now on; ACP updates the fixture for you:
+## What ACP catches
 
-```bash
-acp incident assert .acp/incidents/INC-42.json --must-not-occur delete_customer
-```
+**Authority violation:** `delete_customer` is `DENY`; a new code change causes the agent to call it. Ordinary application tests may still pass, but ACP blocks the CI run.
 
-Other supported decisions:
+**Incident regression:** `send_email` is generally `ALLOW`; a historical incident showed the agent sending it twice. The committed incident invariant says maximum one. A later PR reintroduces the duplicate behavior, so ACP blocks CI even though the action itself is authorized.
 
-```bash
-acp incident assert .acp/incidents/INC-42.json --must-occur approval_check
-acp incident assert .acp/incidents/INC-42.json --max-occurrences send_email --max 1
-```
+## CI result
 
-Commit `.acp/incidents/INC-42.json`. From then on, the normal generated `acp check` CI gate discovers every fixture matching `.acp/incidents/*.json` and evaluates its invariant against the **current CI run's observed tool-call events**. The original incident events remain in the fixture as historical evidence; they do not fail the build forever. Only recurrence in current behavior causes an incident regression failure. Any failed incident invariant exits `2` and blocks CI. You do not add a separate workflow step for each incident.
-
-To inspect one historical incident locally or create an evidence pack:
-
-```bash
-acp incident replay .acp/incidents/INC-42.json --evidence incident.evidence.json
-```
-
-`acp incident replay` without a current trace inspects the stored incident evidence itself. The automatic CI regression path is `acp check`, which evaluates committed incident invariants against current observed events.
-
-## Authority decisions
-
-ACP contracts classify actions as `ALLOW`, `REQUIRE_APPROVAL`, or `DENY`. Keep the default at `REQUIRE_APPROVAL` when you have not explicitly decided an action's authority.
-
-## Exit codes
-
-| Code | Meaning |
+| Result | Meaning |
 |---|---|
-| `0` | authority + incident regression gate passed |
-| `2` | denied authority action or incident regression failed |
-| `3` | approval-required action configured to fail CI |
-| `4` | invalid/missing input, config, contract or required trace |
+| PASS | observed agent actions satisfy the authority contract and all committed incident invariants |
+| exit `2` | denied authority action or incident regression |
+| exit `3` | approval-required action configured to fail CI |
+| exit `4` | invalid/missing config, contract, or required trace |
+
+No tool-call events fails by default rather than silently passing.
 
 ## Trace support
 
-Default discovery includes `.acp/traces/**/*.json`, `**/*trace*.json`, `**/*tool-call*.json`, and `**/*tool_calls*.json`. No tool-call events fails by default rather than silently passing.
-
-For frameworks not automatically captured, point `.acp/config.json` `trace_globs` at JSON traces your tests already emit.
-
-## What ACP automates vs. what you decide
-
-ACP automates trace normalization, fixture creation, fixture storage convention, CI discovery, current-run regression evaluation, exit codes and evidence. You decide the actual authority boundary and incident invariant because those are business/security decisions. For production incidents, ACP currently expects a trace exported from your existing logging or observability system; direct production-observability connectors are not yet built in.
+Default discovery includes `.acp/traces/**/*.json`, `**/*trace*.json`, `**/*tool-call*.json`, and `**/*tool_calls*.json`. For frameworks not automatically captured, configure `.acp/config.json` `trace_globs` to point at JSON traces the customer's tests already emit.
 
 ## Scope
 
-ACP is a deterministic control/regression layer over observed agent actions. It does not invent your business authority policy, prove a source trace is complete/authentic, provide a human approval UI, or replace runtime authorization/observability.
+ACP is a deterministic CI control/regression layer over observed agent actions. It does not invent the customer's authority policy, prove that a source trace is complete/authentic, provide a human approval UI, or replace runtime authorization/production observability.
 
 ## Feedback
 
