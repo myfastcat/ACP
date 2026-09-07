@@ -35,7 +35,7 @@ def default_config(contract: str = ".acp/authority.json") -> dict:
         "fail_on_approval": True,
         "require_events": True,
         "zero_code_adapters": ["openai-agents"],
-        "notes": "ACP auto-captures supported OpenAI Agents SDK function spans, evaluates authority, and replays every committed incident fixture under .acp/incidents during acp check.",
+        "notes": "ACP auto-captures supported OpenAI Agents SDK function spans, evaluates authority, and replays committed incident invariants against the current CI run's observed tool calls.",
     }
 
 
@@ -83,7 +83,11 @@ def run_check(root: str | Path, config: dict, contract: dict) -> dict:
         )
     report = evaluate_trace(contract, events)
     report["sources"] = sources
-    report["incidents"] = evaluate_incident_files(root, config.get("incident_globs", DEFAULT_INCIDENT_GLOBS))
+    report["incidents"] = evaluate_incident_files(
+        root,
+        config.get("incident_globs", DEFAULT_INCIDENT_GLOBS),
+        observed_events=events,
+    )
     report["summary"]["incident_regressions"] = len(report["incidents"])
     report["summary"]["incident_failures"] = sum(1 for item in report["incidents"] if not item["passed"])
     return report
