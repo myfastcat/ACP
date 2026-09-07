@@ -7,6 +7,7 @@ from .discovery import discover_python_tools, draft_contract
 from .engine import ContractError, evaluate_trace, validate_contract
 from .integration import default_config, render_github_actions, run_check
 from .normalize import TraceNormalizationError, normalize_trace
+from .replay import ReplayError, dump as replay_dump, evaluate_fixture, evidence_pack, load as replay_load, normalize_incident
 
 
 def _load(path: str):
@@ -36,7 +37,7 @@ def _print_report(report: dict) -> None:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog="acp", description="Discover, normalize and enforce AI-agent authority boundaries.")
+    parser = argparse.ArgumentParser(prog="acp", description="Control agent authority and turn incidents into deterministic CI regressions.")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     init = sub.add_parser("init", help="Discover agent tools and generate a conservative draft authority contract")
@@ -64,6 +65,17 @@ def main(argv=None) -> int:
     check.add_argument("--config", default=".acp/config.json")
     check.add_argument("--json", action="store_true")
 
+    incident = sub.add_parser("incident", help="Convert agent incidents into deterministic regression fixtures")
+    incident_sub = incident.add_subparsers(dest="incident_cmd", required=True)
+    incident_import = incident_sub.add_parser("import", help="Normalize an incident trace into an editable ACP fixture")
+    incident_import.add_argument("trace")
+    incident_import.add_argument("--incident-id", default="incident")
+    incident_import.add_argument("--out", default="incident.fixture.json")
+    incident_replay = incident_sub.add_parser("replay", help="Replay incident assertions and optionally write an evidence pack")
+    incident_replay.add_argument("fixture")
+    incident_replay.add_argument("--json", action="store_true")
+    incident_replay.add_argument("--evidence")
+
     args = parser.parse_args(argv)
     try:
         if args.cmd == "init":
@@ -79,10 +91,7 @@ def main(argv=None) -> int:
                 _write(".acp/config.json", default_config(args.out))
                 _write_text(".github/workflows/acp.yml", render_github_actions(args.test_command))
                 generated.extend([".acp/config.json", ".github/workflows/acp.yml"])
-            print(
-                f"discovered={len(tools)} frameworks={','.join(frameworks)} "
-                f"review_required=true generated={','.join(generated)}"
-            )
+            print(f"discovered={len(tools)} frameworks={','.join(frameworks)} review_required=true generated={','.join(generated)}")
             return 0
 
         if args.cmd == "normalize":
@@ -90,6 +99,19 @@ def main(argv=None) -> int:
             _write(args.out, events)
             print(f"events={len(events)} trace={args.out}")
             return 0
+
+        if args.cmd == "incident":
+            if args.incident_cmd == "import":
+                fixture = normalize_incident(replay_load(args.trace), args.incident_id)
+                replay_dump(args.out, fixture)
+                print(f"events={len(fixture['events'])} fixture={args.out}")
+                return 0
+            fixture = replay_load(args.fixture)
+            report = evaluate_fixture(fixture)
+            if args.evidence:
+                replay_dump(args.evidence, evidence_pack(fixture, report))
+            print(json.dumps(report, indent=2) if args.json else f"passed={str(report['passed']).lower()} events={report['event_count']} failures={len(report['failures'])}")
+            return 0 if report["passed"] else 2
 
         if args.cmd == "check":
             config_path = Path(args.config).resolve()
@@ -131,7 +153,7 @@ def main(argv=None) -> int:
         if args.fail_on_approval and report["summary"]["counts"]["REQUIRE_APPROVAL"] > 0:
             return 3
         return 0
-    except (OSError, json.JSONDecodeError, ContractError, TraceNormalizationError, ValueError) as exc:
+    except (OSError, json.JSONDecodeError, ContractError, TraceNormalizationError, ReplayError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 4
 
