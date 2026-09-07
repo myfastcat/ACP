@@ -8,6 +8,7 @@ from typing import Iterable
 
 from .engine import evaluate_trace
 from .normalize import TraceNormalizationError, normalize_trace
+from .replay import evaluate_incident_files
 
 DEFAULT_TRACE_GLOBS = [
     ".acp/traces/**/*.json",
@@ -15,6 +16,7 @@ DEFAULT_TRACE_GLOBS = [
     "**/*tool-call*.json",
     "**/*tool_calls*.json",
 ]
+DEFAULT_INCIDENT_GLOBS = [".acp/incidents/*.json"]
 DEFAULT_ACP_INSTALL = "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
 
 
@@ -29,10 +31,11 @@ def default_config(contract: str = ".acp/authority.json") -> dict:
         "schema_version": "1",
         "contract": contract,
         "trace_globs": list(DEFAULT_TRACE_GLOBS),
+        "incident_globs": list(DEFAULT_INCIDENT_GLOBS),
         "fail_on_approval": True,
         "require_events": True,
         "zero_code_adapters": ["openai-agents"],
-        "notes": "Non-invasive mode: ACP can auto-capture OpenAI Agents SDK function spans; other frameworks may point trace_globs at artifacts already emitted by normal tests.",
+        "notes": "ACP auto-captures supported OpenAI Agents SDK function spans, evaluates authority, and replays every committed incident fixture under .acp/incidents during acp check.",
     }
 
 
@@ -80,6 +83,9 @@ def run_check(root: str | Path, config: dict, contract: dict) -> dict:
         )
     report = evaluate_trace(contract, events)
     report["sources"] = sources
+    report["incidents"] = evaluate_incident_files(root, config.get("incident_globs", DEFAULT_INCIDENT_GLOBS))
+    report["summary"]["incident_regressions"] = len(report["incidents"])
+    report["summary"]["incident_failures"] = sum(1 for item in report["incidents"] if not item["passed"])
     return report
 
 
@@ -87,14 +93,14 @@ def render_github_actions(test_command: str, python_version: str = "3.12", acp_i
     if not test_command.strip():
         raise ValueError("test_command is required to generate CI")
     wrapped_test = "python -m agent_control_plane.zero_code_runner -- sh -lc " + shlex.quote(test_command)
-    return f'''name: ACP Authority Gate
+    return f'''name: ACP Authority + Regression Gate
 
 on:
   pull_request:
   push:
 
 jobs:
-  authority:
+  authority-and-regression:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,8 +114,6 @@ jobs:
           python -m pip install "{acp_install}"
       - name: Run existing agent/integration tests with ACP zero-code bootstrap
         run: {wrapped_test}
-      - name: Validate authority contract
-        run: acp validate .acp/authority.json
-      - name: ACP authority gate
+      - name: ACP authority + incident regression gate
         run: acp check --config .acp/config.json
 '''
