@@ -1,0 +1,9 @@
+{
+  "agent": "my-agent",
+  "default": "REQUIRE_APPROVAL",
+  "rules": [
+    {"id": "safe-read", "action": "read_*", "decision": "ALLOW", "reason": "read-only operations"},
+    {"id": "external-write", "action": "send_*", "decision": "REQUIRE_APPROVAL", "reason": "external side effect"},
+    {"id": "destructive", "action": "delete_*", "decision": "DENY", "reason": "destructive operation"}
+  ]
+}
