@@ -6,6 +6,8 @@ Python 3.10+. ACP is a deterministic **CI gate**: it observes test traces; it do
 
 **Had a duplicate tool call or email?** We are recruiting **3 pilot users** and offering free help turning one sanitized incident into a CI regression check. [Reply with your framework, one problem and when you can try ACP](https://github.com/myfastcat/ACP/issues/3) — no installation needed to start. [See the concrete customer demo](https://github.com/myfastcat/demo/tree/main/agent-control-plane).
 
+**Need integration help?** See the [proposed fixed-scope incident-to-CI service](SERVICE.md): US$149 once, checkout not open. The first three advertised pilots remain free.
+
 ## Set the boundary once
 
 From your existing Python agent project (with installable `pyproject.toml` and its test dependencies):
