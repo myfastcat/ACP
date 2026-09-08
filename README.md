@@ -4,12 +4,14 @@ Check your agent's authority boundaries and incident invariants against tool cal
 
 Python 3.10+. ACP is a deterministic **CI gate**: it observes test traces; it does not intercept production actions, execute approval requests, or replay a live agent from an incident.
 
+**Had a duplicate tool call or email?** We are recruiting **3 pilot users** and offering free help turning one sanitized incident into a CI regression check. [Reply with your framework, one problem and when you can try ACP](https://github.com/myfastcat/ACP/issues/3) — no installation needed to start. [See the concrete customer demo](https://github.com/myfastcat/demo/tree/main/agent-control-plane).
+
 ## Set the boundary once
 
 From your existing Python agent project (with installable `pyproject.toml` and its test dependencies):
 
 ```sh
-python -m pip install "git+https://github.com/myfastcat/VCL.git"
+python -m pip install "git+https://github.com/myfastcat/ACP.git"
 acp init . --ci --test-command 'python -m unittest discover -s tests -v'
 ```
 
@@ -77,6 +79,6 @@ Commit the fixture after adding invariants. Imported fixtures without invariants
 
 Other inspection commands: `acp validate .acp/authority.json` → `VALID`, exit 0 or 4; `acp normalize raw.json --out acp-trace.json` → normalized JSON, exit 0 or 4; `acp eval .acp/authority.json acp-trace.json --fail-on-approval --json` → authority-only report, exit 0/2/3/4. Without `--fail-on-approval`, `eval` permits approval results.
 
-See the [customer CI demo](https://github.com/myfastcat/VCL-demo/tree/main/agent-control-plane) for concrete support-agent cases and workflow artifacts. Report installation friction or boundary requirements in [Issues](https://github.com/myfastcat/VCL/issues).
+See the [customer CI demo](https://github.com/myfastcat/demo/tree/main/agent-control-plane) for concrete support-agent cases and workflow artifacts. Report installation friction or boundary requirements in [Issues](https://github.com/myfastcat/ACP/issues).
 
-Repository scope: this repository is exclusively ACP; code/package/tests live at its root. The requested repository renames to `ACP` and shared `demo` are pending a repository-settings-capable authenticated session; links above use the actual current names. Historical commits remain available.
+Repository scope: this repository is exclusively ACP; code/package/tests live at its root. The product repository is `myfastcat/ACP`; shared customer demos live in `myfastcat/demo`. Historical commits remain available.
