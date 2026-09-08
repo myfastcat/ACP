@@ -44,7 +44,7 @@ def discover_python_tools(root: str | Path) -> list[DiscoveredTool]:
     base = Path(root).resolve()
     tools: list[DiscoveredTool] = []
     for path in sorted(base.rglob("*.py")):
-        if any(part.startswith(".") or part in {"venv", ".venv", "site-packages", "node_modules"} for part in path.parts):
+        if any(part.startswith(".") or part in {"venv", ".venv", "site-packages", "node_modules"} for part in path.relative_to(base).parts):
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

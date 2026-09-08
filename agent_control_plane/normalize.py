@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Iterable
+from .validation import text_value, events_value
 
 
 class TraceNormalizationError(ValueError):
@@ -29,7 +30,7 @@ def normalize_event(item: dict[str, Any]) -> dict[str, Any] | None:
         context = item.get("context", {})
         if not isinstance(context, dict):
             raise TraceNormalizationError("context must be an object")
-        return {"action": str(item["action"]), "context": context}
+        return {"action": text_value(item["action"], "action"), "context": context}
 
     if "tool" in item and isinstance(item.get("tool"), str):
         return {"action": item["tool"], "context": _parse_arguments(item.get("arguments", item.get("args")))}
@@ -79,4 +80,4 @@ def normalize_trace(payload: Any) -> list[dict[str, Any]]:
     events = list(_walk(payload))
     if not events:
         raise TraceNormalizationError("No supported tool calls found in trace")
-    return events
+    return events_value(events)

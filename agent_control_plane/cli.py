@@ -2,10 +2,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import re
 from pathlib import Path
 from .discovery import discover_python_tools, draft_contract
 from .engine import ContractError, evaluate_trace, validate_contract
-from .integration import default_config, render_github_actions, run_check
+from .integration import default_config, render_github_actions, run_check, exit_code
+from .validation import object_value
 from .normalize import TraceNormalizationError, normalize_trace
 from .replay import ReplayError, add_assertion, dump as replay_dump, evaluate_fixture, evidence_pack, load as replay_load, normalize_incident
 
@@ -87,10 +89,20 @@ def main(argv=None) -> int:
     incident_replay.add_argument("--json", action="store_true")
     incident_replay.add_argument("--evidence")
 
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return 0 if exc.code == 0 else 4
     try:
         if args.cmd == "init":
             root = Path(args.path).resolve()
+            if args.ci and not args.test_command:
+                raise ValueError("--test-command is required with --ci")
+            targets = [Path(args.out)]
+            if args.ci:
+                targets += [Path(".acp/config.json"), Path(".github/workflows/acp.yml")]
+            if any(p.exists() for p in targets):
+                raise ValueError("Init would overwrite existing configuration; use a fresh directory or edit the reviewed files")
             tools = discover_python_tools(root)
             contract = draft_contract(args.agent or root.name, tools)
             _write(args.out, contract)
@@ -114,8 +126,12 @@ def main(argv=None) -> int:
 
         if args.cmd == "incident":
             if args.incident_cmd == "import":
+                if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", args.incident_id):
+                    raise ValueError("incident-id must be a safe filename identifier")
                 fixture = normalize_incident(replay_load(args.trace), args.incident_id)
                 out = args.out or f".acp/incidents/{args.incident_id}.json"
+                if Path(out).exists():
+                    raise ValueError("Incident fixture already exists; choose a new output to preserve its invariants")
                 replay_dump(out, fixture)
                 incident_events = fixture.get("incident_events", fixture.get("events", []))
                 print(f"events={len(incident_events)} fixture={out} next=acp incident assert {out} --must-not-occur <ACTION>")
@@ -140,7 +156,7 @@ def main(argv=None) -> int:
 
         if args.cmd == "check":
             config_path = Path(args.config).resolve()
-            config = _load(str(config_path))
+            config = object_value(_load(str(config_path)), "config")
             root = config_path.parent.parent if config_path.parent.name == ".acp" else Path.cwd()
             contract_path = Path(config.get("contract", ".acp/authority.json"))
             if not contract_path.is_absolute():
@@ -152,11 +168,7 @@ def main(argv=None) -> int:
                 print(json.dumps(report, indent=2))
             else:
                 _print_report(report)
-            if report["summary"]["counts"]["DENY"] > 0 or report["summary"].get("incident_failures", 0) > 0:
-                return 2
-            if config.get("fail_on_approval", True) and report["summary"]["counts"]["REQUIRE_APPROVAL"] > 0:
-                return 3
-            return 0
+            return report["summary"]["exit_code"]
 
         contract = _load(args.contract)
         if args.cmd == "validate":
@@ -169,6 +181,8 @@ def main(argv=None) -> int:
         if not isinstance(events, list):
             raise ContractError("trace must be a JSON array; use --normalize for framework-native traces")
         report = evaluate_trace(contract, events)
+        report["summary"]["exit_code"] = exit_code(report, args.fail_on_approval)
+        report["summary"]["ci_pass"] = report["summary"]["exit_code"] == 0
         if args.json:
             print(json.dumps(report, indent=2))
         else:
@@ -178,7 +192,7 @@ def main(argv=None) -> int:
         if args.fail_on_approval and report["summary"]["counts"]["REQUIRE_APPROVAL"] > 0:
             return 3
         return 0
-    except (OSError, json.JSONDecodeError, ContractError, TraceNormalizationError, ReplayError, ValueError) as exc:
+    except (OSError, UnicodeError, ContractError, TraceNormalizationError, ReplayError, ValueError, TypeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 4
 

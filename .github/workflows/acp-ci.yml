@@ -1,34 +1,40 @@
-name: acp-ci
-
+name: ACP product acceptance
 on:
   push:
-    paths:
-      - "agent-control-plane/**"
-      - ".github/workflows/acp-ci.yml"
   pull_request:
-    paths:
-      - "agent-control-plane/**"
-      - ".github/workflows/acp-ci.yml"
-
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   test:
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-control-plane
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install test dependencies
-        run: python -m pip install pytest
-      - name: Run full test suite
-        run: python -m pytest -q
-      - run: python -m agent_control_plane.cli validate examples/procurement-contract.json
-      - name: Verify deny path returns 2
+          python-version: ${{ matrix.python }}
+      - name: Install product and verification dependencies
+        run: python -m pip install . pytest pyyaml build openai-agents
+      - name: All original tests and boundary regressions
+        run: python -m pytest -q -rs --junitxml=test-results.xml
+      - name: Build installable distribution
+        run: python -m build
+      - name: Validate authority and deny exit semantics
         run: |
+          acp validate examples/procurement-contract.json
           set +e
-          python -m agent_control_plane.cli eval examples/procurement-contract.json examples/procurement-trace.json
-          code=$?
-          test "$code" -eq 2
+          acp eval examples/procurement-contract.json examples/procurement-trace.json --json > authority-report.json
+          status=$?
+          set -e
+          test "$status" -eq 2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: product-evidence-${{ matrix.python }}
+          path: |
+            test-results.xml
+            authority-report.json
+            dist/*

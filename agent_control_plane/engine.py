@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any
 from .model import Decision, Evaluation
+from .validation import object_value, text_value, events_value
 
 DECISION_ORDER = {Decision.ALLOW: 0, Decision.REQUIRE_APPROVAL: 1, Decision.DENY: 2}
 BLAST_RISK = {"none": 0, "single_record": 5, "team": 12, "customer": 18, "organization": 25, "external": 30}
@@ -52,28 +53,52 @@ def _risk(rule: dict[str, Any], event: dict[str, Any]) -> tuple[int, str, bool]:
 
 
 def validate_contract(contract: dict[str, Any]) -> None:
-    if contract.get("schema_version") != "1":
-        raise ContractError("schema_version must be '1'")
-    if not contract.get("agent", {}).get("name"):
-        raise ContractError("agent.name is required")
-    rules = contract.get("rules")
-    if not isinstance(rules, list) or not rules:
-        raise ContractError("rules must be a non-empty list")
-    seen = set()
-    for rule in rules:
-        rid = rule.get("id")
-        if not rid or rid in seen:
-            raise ContractError("each rule.id must be unique and non-empty")
-        seen.add(rid)
-        if rule.get("decision") not in {d.value for d in Decision}:
-            raise ContractError(f"invalid decision in rule {rid}")
-        for cond in rule.get("when", []):
-            if "field" not in cond:
-                raise ContractError(f"condition field missing in rule {rid}")
+    try:
+        object_value(contract, "contract")
+        if contract.get("schema_version") != "1":
+            raise ValueError("schema_version must be '1'")
+        text_value(object_value(contract.get("agent"), "agent").get("name"), "agent.name")
+        default = object_value(contract.get("default", {"decision": "DENY"}), "default")
+        if default.get("decision", "DENY") not in {d.value for d in Decision}:
+            raise ValueError("invalid default decision")
+        rules = contract.get("rules")
+        if not isinstance(rules, list) or not rules:
+            raise ValueError("rules must be a non-empty list")
+        seen = set()
+        for rule in rules:
+            object_value(rule, "rule")
+            rid = text_value(rule.get("id"), "rule.id")
+            if rid in seen:
+                raise ValueError("each rule.id must be unique")
+            seen.add(rid)
+            if rule.get("decision") not in {d.value for d in Decision}:
+                raise ValueError(f"invalid decision in rule {rid}")
+            if type(rule.get("risk", 10)) is not int or not 0 <= rule.get("risk", 10) <= 100:
+                raise ValueError("risk must be an integer from 0 to 100")
+            if rule.get("blast_radius", "single_record") not in BLAST_RISK:
+                raise ValueError("invalid blast_radius")
+            if type(rule.get("irreversible", False)) is not bool:
+                raise ValueError("irreversible must be boolean")
+            conditions = rule.get("when", [])
+            if not isinstance(conditions, list):
+                raise ValueError("rule.when must be a list")
+            for cond in conditions:
+                object_value(cond, "condition")
+                text_value(cond.get("field"), "condition.field")
+                op = cond.get("op", "eq")
+                if op not in {"eq", "ne", "in", "not_in", "gt", "gte", "lt", "lte", "exists"}:
+                    raise ValueError(f"Unsupported operator: {op}")
+                if op in {"in", "not_in"} and not isinstance(cond.get("value"), list):
+                    raise ValueError("membership condition value must be a list")
+                if op == "exists" and type(cond.get("value")) is not bool:
+                    raise ValueError("exists value must be boolean")
+    except ValueError as exc:
+        raise ContractError(str(exc)) from exc
 
 
 def evaluate(contract: dict[str, Any], event: dict[str, Any]) -> Evaluation:
     validate_contract(contract)
+    events_value([event])
     matched = []
     for rule in contract["rules"]:
         if _conditions_match(event, rule.get("when", [])):
@@ -97,6 +122,8 @@ def evaluate(contract: dict[str, Any], event: dict[str, Any]) -> Evaluation:
 
 
 def evaluate_trace(contract: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    validate_contract(contract)
+    events_value(events)
     results = []
     counts = {d.value: 0 for d in Decision}
     total_risk = 0
