@@ -29,6 +29,47 @@ def _write_text(path: str, value: str) -> None:
     target.write_text(value, encoding="utf-8")
 
 
+def _detect_test_command(root: Path) -> str | None:
+    """Return a conservative existing Python test command when the runner is unambiguous.
+
+    Detection is static only: init never executes the candidate command. Explicit runner
+    configuration is preferred; otherwise import evidence in tests is used. Mixed pytest
+    and unittest evidence without an explicit pytest configuration is treated as ambiguous.
+    """
+    pytest_configured = (root / "pytest.ini").is_file()
+    for path, marker in ((root / "pyproject.toml", "[tool.pytest.ini_options]"), (root / "setup.cfg", "[tool:pytest]")):
+        if path.is_file():
+            try:
+                if marker in path.read_text(encoding="utf-8"):
+                    pytest_configured = True
+            except (OSError, UnicodeError):
+                pass
+    if pytest_configured:
+        return "python -m pytest"
+
+    tests = root / "tests"
+    if not tests.is_dir():
+        return None
+    saw_pytest = False
+    saw_unittest = False
+    for index, path in enumerate(tests.rglob("test*.py")):
+        if index >= 200:
+            return None
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            return None
+        saw_pytest = saw_pytest or bool(re.search(r"(?m)^\s*(?:import\s+pytest\b|from\s+pytest\b)", source))
+        saw_unittest = saw_unittest or bool(re.search(r"(?m)^\s*(?:import\s+unittest\b|from\s+unittest\b)", source))
+        if saw_pytest and saw_unittest:
+            return None
+    if saw_pytest:
+        return "python -m pytest"
+    if saw_unittest:
+        return "python -m unittest discover -s tests -v"
+    return None
+
+
 def _print_report(report: dict) -> None:
     s = report["summary"]
     print(f"events={s['events']} allow={s['counts']['ALLOW']} approval={s['counts']['REQUIRE_APPROVAL']} deny={s['counts']['DENY']} incident_regressions={s.get('incident_regressions', 0)} incident_failures={s.get('incident_failures', 0)} avg_risk={s['average_risk']} ci_pass={str(s['ci_pass']).lower()}")
@@ -49,7 +90,7 @@ def main(argv=None) -> int:
     init.add_argument("--agent", default=None, help="Agent name; defaults to repository/directory name")
     init.add_argument("--out", default=".acp/authority.json")
     init.add_argument("--ci", action="store_true", help="Generate non-invasive ACP config and GitHub Actions gate")
-    init.add_argument("--test-command", default=None, help="Existing integration-test command used by generated CI, e.g. 'pytest -q'")
+    init.add_argument("--test-command", default=None, help="Existing integration-test command used by generated CI; omit when ACP can safely detect pytest/unittest")
 
     normalize = sub.add_parser("normalize", help="Normalize common tool-call traces to ACP {action, context} events")
     normalize.add_argument("trace")
@@ -96,8 +137,13 @@ def main(argv=None) -> int:
     try:
         if args.cmd == "init":
             root = Path(args.path).resolve()
-            if args.ci and not args.test_command:
-                raise ValueError("--test-command is required with --ci")
+            test_command = args.test_command
+            test_command_source = "explicit" if test_command else None
+            if args.ci and not test_command:
+                test_command = _detect_test_command(root)
+                test_command_source = "detected" if test_command else None
+                if not test_command:
+                    raise ValueError("--test-command is required with --ci when ACP cannot safely detect one unambiguous pytest/unittest runner")
             targets = [Path(args.out)]
             if args.ci:
                 targets += [Path(".acp/config.json"), Path(".github/workflows/acp.yml")]
@@ -109,13 +155,12 @@ def main(argv=None) -> int:
             frameworks = sorted({t.framework for t in tools})
             generated = [args.out]
             if args.ci:
-                if not args.test_command:
-                    raise ValueError("--test-command is required with --ci so ACP can run your existing tests unchanged")
                 _write(".acp/config.json", default_config(args.out))
-                _write_text(".github/workflows/acp.yml", render_github_actions(args.test_command))
+                _write_text(".github/workflows/acp.yml", render_github_actions(test_command))
                 Path(".acp/incidents").mkdir(parents=True, exist_ok=True)
                 generated.extend([".acp/config.json", ".github/workflows/acp.yml", ".acp/incidents/"])
-            print(f"discovered={len(tools)} frameworks={','.join(frameworks)} review_required=true generated={','.join(generated)}")
+            suffix = f" test_command_source={test_command_source}" if args.ci else ""
+            print(f"discovered={len(tools)} frameworks={','.join(frameworks)} review_required=true generated={','.join(generated)}{suffix}")
             return 0
 
         if args.cmd == "normalize":
