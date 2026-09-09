@@ -14,15 +14,17 @@ From your existing Python agent project (with installable `pyproject.toml` and i
 
 ```sh
 python -m pip install "git+https://github.com/myfastcat/ACP.git"
-acp init . --ci --test-command 'python -m unittest discover -s tests -v'
+acp init . --ci
 ```
 
-Replace the test command with the one your team already uses. `init` statically discovers Python functions decorated with `@function_tool`, `@tool`, `@mcp.tool()` or `@server.tool()`; it does not execute your source. No tools found → exit 4. Run from the customer project root; the optional path selects source to scan, while outputs are relative to the current directory.
+For an unambiguous pytest or unittest project, ACP statically detects the existing test runner and writes it into the generated workflow. Detection recognizes explicit pytest configuration or a single test style under `tests/`; it does **not** execute the detected command during `init`. If the project has no safe match or mixed/ambiguous runner evidence, `init` exits 4 and asks you to provide your real command explicitly, for example `acp init . --ci --test-command 'python -m unittest discover -s tests -v'`. ACP never guesses through ambiguity.
+
+`init` statically discovers Python functions decorated with `@function_tool`, `@tool`, `@mcp.tool()` or `@server.tool()`; it does not execute your source. No tools found → exit 4. Run from the customer project root; the optional path selects source to scan, while outputs are relative to the current directory.
 
 | Customer command/input | Generated artifact | Automatic behavior / result |
 | --- | --- | --- |
-| `acp init . --ci --test-command '…'` + Python tools | `.acp/authority.json` | Draft read-like tools as ALLOW, mutations as REQUIRE_APPROVAL, destructive tools as DENY; unmatched actions DENY. **Review every rule**: names cannot establish real business authority. |
-| Same command + existing test command | `.acp/config.json` | Default current observations `.acp/traces/**/*.json`; committed invariants `.acp/incidents/*.json`; approval blocks enabled. |
+| `acp init . --ci` + Python tools + unambiguous pytest/unittest runner, or the same command with explicit `--test-command '…'` | `.acp/authority.json` | Draft read-like tools as ALLOW, mutations as REQUIRE_APPROVAL, destructive tools as DENY; unmatched actions DENY. **Review every rule**: names cannot establish real business authority. |
+| Same command + detected or explicit existing test command | `.acp/config.json` | Default current observations `.acp/traces/**/*.json`; committed invariants `.acp/incidents/*.json`; approval blocks enabled. |
 | Same command | `.github/workflows/acp.yml` | On push/PR: install customer project + ACP, run the existing tests through the capture bootstrap, then `acp check`. Test failure stops the job. |
 | Same command | `.acp/incidents/` directory only | No invented incident or fixture. Empty directory is normal and need not be committed. Exit 0 means generated, **not safety verified**. |
 
@@ -41,7 +43,7 @@ Conditions within a rule are ANDed. All matching rules participate; DENY outrank
 The generated workflow executes these exact operations:
 
 ```sh
-python -m agent_control_plane.zero_code_runner -- sh -c 'python -m unittest discover -s tests -v'
+python -m agent_control_plane.zero_code_runner -- sh -c '<detected-or-explicit-test-command>'
 acp check --config .acp/config.json
 ```
 
