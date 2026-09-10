@@ -56,6 +56,8 @@ class ZeroCodeIntegrationTest(unittest.TestCase):
         self.assertIn("agent_control_plane.zero_code_runner", workflow)
         self.assertIn("python -m unittest discover -s tests -v", workflow)
         self.assertIn("acp check --config .acp/config.json", workflow)
+        self.assertIn('python -m pip install "git+https://github.com/myfastcat/ACP.git"', workflow)
+        self.assertNotIn("myfastcat/VCL.git", workflow)
         self.assertNotIn("@acp", workflow)
 
 

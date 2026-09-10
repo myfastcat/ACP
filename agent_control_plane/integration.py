@@ -13,7 +13,7 @@ from .validation import object_value, patterns_value
 
 DEFAULT_TRACE_GLOBS = [".acp/traces/**/*.json"]
 DEFAULT_INCIDENT_GLOBS = [".acp/incidents/*.json"]
-DEFAULT_ACP_INSTALL = "git+https://github.com/myfastcat/VCL.git"
+DEFAULT_ACP_INSTALL = "git+https://github.com/myfastcat/ACP.git"
 
 
 @dataclass(frozen=True)
