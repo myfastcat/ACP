@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterable
@@ -70,13 +71,19 @@ def discover_python_tools(root: str | Path) -> list[DiscoveredTool]:
     return list(deduped.values())
 
 
+def _name_tokens(name: str) -> set[str]:
+    """Split snake/kebab/camel tool names without matching hints inside words."""
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)
+    return {part.lower() for part in re.findall(r"[A-Za-z0-9]+", words)}
+
+
 def _draft_decision(name: str) -> tuple[str, int, str, bool, str]:
-    lowered = name.lower()
-    if any(hint in lowered for hint in HIGH_RISK_HINTS):
+    tokens = _name_tokens(name)
+    if tokens.intersection(HIGH_RISK_HINTS):
         return "DENY", 40, "external", True, "Conservative draft: high-impact or irreversible action. Review before enabling."
-    if any(hint in lowered for hint in MUTATION_HINTS):
+    if tokens.intersection(MUTATION_HINTS):
         return "REQUIRE_APPROVAL", 25, "customer", False, "Conservative draft: state-changing action requires review."
-    if any(hint in lowered for hint in READ_HINTS):
+    if tokens.intersection(READ_HINTS):
         return "ALLOW", 5, "single_record", False, "Drafted as read-only from tool name. Verify semantics."
     return "REQUIRE_APPROVAL", 20, "team", False, "Unknown tool semantics; require approval until reviewed."
 

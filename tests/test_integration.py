@@ -45,6 +45,21 @@ def update_customer(name: str):
             {"action": "create_order", "context": {"amount": 42, "currency": "USD"}}
         ])
 
+    def test_draft_hints_match_name_tokens_not_substrings(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "agent.py").write_text(
+                "@tool\ndef target_account():\n    pass\n\n"
+                "@tool\ndef budget_report():\n    pass\n\n"
+                "@tool\ndef listUsers():\n    pass\n",
+                encoding="utf-8",
+            )
+            contract = draft_contract("token-boundary-agent", discover_python_tools(root))
+            decisions = {r["when"][0]["value"]: r["decision"] for r in contract["rules"]}
+            self.assertEqual(decisions["target_account"], "REQUIRE_APPROVAL")
+            self.assertEqual(decisions["budget_report"], "REQUIRE_APPROVAL")
+            self.assertEqual(decisions["listUsers"], "ALLOW")
+
     def test_normalizes_chat_completions_tool_calls(self):
         raw = {"messages": [{"tool_calls": [{"type": "function", "function": {"name": "search_customer", "arguments": '{"id": "c1"}'}}]}]}
         self.assertEqual(normalize_trace(raw), [
