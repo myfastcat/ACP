@@ -10,6 +10,8 @@ from typing import Iterable
 READ_HINTS = ("get", "list", "read", "search", "find", "lookup", "fetch", "inspect", "query")
 HIGH_RISK_HINTS = ("delete", "remove", "destroy", "drop", "payment", "pay", "transfer", "wire", "refund", "revoke", "disable")
 MUTATION_HINTS = ("create", "update", "write", "send", "publish", "post", "issue", "approve", "cancel", "execute", "modify", "set")
+PACKAGE_SIDE_EFFECT_HINTS = ("publish", "upload", "install")
+CREDENTIAL_HINTS = ("credential", "credentials", "secret", "secrets", "token", "tokens", "password", "passwords")
 SUPPORTED_DECORATORS = {"function_tool", "tool", "mcp.tool", "server.tool"}
 
 
@@ -79,6 +81,10 @@ def _name_tokens(name: str) -> set[str]:
 
 def _draft_decision(name: str) -> tuple[str, int, str, bool, str]:
     tokens = _name_tokens(name)
+    if "package" in tokens and tokens.intersection(PACKAGE_SIDE_EFFECT_HINTS):
+        return "DENY", 40, "external", True, "Conservative draft: package supply-chain side effect. Review before enabling."
+    if tokens.intersection(CREDENTIAL_HINTS):
+        return "DENY", 40, "external", True, "Conservative draft: credential or secret access. Review before enabling."
     if tokens.intersection(HIGH_RISK_HINTS):
         return "DENY", 40, "external", True, "Conservative draft: high-impact or irreversible action. Review before enabling."
     if tokens.intersection(MUTATION_HINTS):

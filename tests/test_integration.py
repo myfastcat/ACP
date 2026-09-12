@@ -60,6 +60,28 @@ def update_customer(name: str):
             self.assertEqual(decisions["budget_report"], "REQUIRE_APPROVAL")
             self.assertEqual(decisions["listUsers"], "ALLOW")
 
+    def test_package_supply_chain_and_credential_hints_fail_closed(self):
+        with tempfile.TemporaryDirectory() as root:
+            Path(root, "tools.py").write_text("""
+@tool
+def upload_package(): pass
+@tool
+def installPackage(): pass
+@tool
+def publish_package(): pass
+@tool
+def get_credentials(): pass
+@tool
+def upload_avatar(): pass
+""")
+            contract = draft_contract("registry-agent", discover_python_tools(root))
+            decisions = {rule["when"][0]["value"]: rule["decision"] for rule in contract["rules"]}
+            self.assertEqual(decisions["upload_package"], "DENY")
+            self.assertEqual(decisions["installPackage"], "DENY")
+            self.assertEqual(decisions["publish_package"], "DENY")
+            self.assertEqual(decisions["get_credentials"], "DENY")
+            self.assertEqual(decisions["upload_avatar"], "REQUIRE_APPROVAL")
+
     def test_normalizes_chat_completions_tool_calls(self):
         raw = {"messages": [{"tool_calls": [{"type": "function", "function": {"name": "search_customer", "arguments": '{"id": "c1"}'}}]}]}
         self.assertEqual(normalize_trace(raw), [
