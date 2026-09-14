@@ -43,6 +43,8 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(code, expected, stderr.getvalue() + stdout.getvalue())
         if expected != 4:
             report = json.loads(stdout.getvalue())
+            self.assertEqual(report['summary']['acp_version'], '0.2.0')
+            self.assertRegex(report['summary']['contract_sha256'], r'^[0-9a-f]{64}$')
             self.assertEqual(report['summary']['ci_pass'], expected == 0)
             self.assertEqual(report['summary']['exit_code'], expected)
         return stdout.getvalue()

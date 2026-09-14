@@ -1,5 +1,8 @@
 from __future__ import annotations
+import hashlib
+import json
 from typing import Any
+from . import __version__
 from .model import Decision, Evaluation
 from .validation import object_value, text_value, events_value
 
@@ -124,6 +127,9 @@ def evaluate(contract: dict[str, Any], event: dict[str, Any]) -> Evaluation:
 def evaluate_trace(contract: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
     validate_contract(contract)
     events_value(events)
+    contract_sha256 = hashlib.sha256(
+        json.dumps(contract, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
     results = []
     counts = {d.value: 0 for d in Decision}
     total_risk = 0
@@ -145,6 +151,8 @@ def evaluate_trace(contract: dict[str, Any], events: list[dict[str, Any]]) -> di
     n = max(len(events), 1)
     return {
         "summary": {
+            "acp_version": __version__,
+            "contract_sha256": contract_sha256,
             "events": len(events),
             "counts": counts,
             "approval_load": round(counts["REQUIRE_APPROVAL"] / n, 3),

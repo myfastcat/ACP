@@ -1,4 +1,6 @@
 import unittest
+import json
+from agent_control_plane import __version__
 from agent_control_plane.engine import ContractError, evaluate, evaluate_trace
 from agent_control_plane.model import Decision
 
@@ -29,6 +31,17 @@ class EngineTest(unittest.TestCase):
 
     def test_trace_ci_fails_on_deny(self):
         self.assertFalse(evaluate_trace(CONTRACT, [{"action": "read"}, {"action": "delete"}])["summary"]["ci_pass"])
+
+    def test_report_identifies_product_version_and_contract(self):
+        report = evaluate_trace(CONTRACT, [{"action": "read"}])
+        self.assertEqual(report["summary"]["acp_version"], __version__)
+        self.assertRegex(report["summary"]["contract_sha256"], r"^[0-9a-f]{64}$")
+
+        reordered = json.loads(json.dumps(CONTRACT))
+        reordered["agent"] = {"name": reordered["agent"]["name"]}
+        reordered = {key: reordered[key] for key in reversed(reordered)}
+        other = evaluate_trace(reordered, [{"action": "read"}])
+        self.assertEqual(report["summary"]["contract_sha256"], other["summary"]["contract_sha256"])
 
     def test_invalid_contract(self):
         with self.assertRaises(ContractError):
