@@ -59,6 +59,20 @@ class Acceptance(unittest.TestCase):
         self.write('.acp/config.json', config)
         self.write('.acp/traces/run.json', [{'action': 'write'}]); self.check(0)
 
+    def test_report_binds_each_source_to_normalized_observations(self):
+        self.write('.acp/traces/run.json', [{'action': 'read', 'context': {'id': 'C-1'}}])
+        first = json.loads(self.check(0))
+        source = first['sources'][0]
+        self.assertRegex(source['normalized_events_sha256'], r'^[0-9a-f]{64}$')
+
+        self.write('.acp/traces/run.json', [{'context': {'id': 'C-1'}, 'action': 'read'}])
+        reordered = json.loads(self.check(0))
+        self.assertEqual(source['normalized_events_sha256'], reordered['sources'][0]['normalized_events_sha256'])
+
+        self.write('.acp/traces/run.json', [{'action': 'read', 'context': {'id': 'C-2'}}])
+        changed = json.loads(self.check(0))
+        self.assertNotEqual(source['normalized_events_sha256'], changed['sources'][0]['normalized_events_sha256'])
+
     def test_missing_empty_malformed_and_mixed_trace(self):
         self.check(4)
         config = default_config(); config['require_events'] = False

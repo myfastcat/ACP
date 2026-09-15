@@ -74,7 +74,7 @@ def _print_report(report: dict) -> None:
     s = report["summary"]
     print(f"acp_version={s['acp_version']} contract_sha256={s['contract_sha256']} events={s['events']} allow={s['counts']['ALLOW']} approval={s['counts']['REQUIRE_APPROVAL']} deny={s['counts']['DENY']} incident_regressions={s.get('incident_regressions', 0)} incident_failures={s.get('incident_failures', 0)} avg_risk={s['average_risk']} ci_pass={str(s['ci_pass']).lower()}")
     for source in report.get("sources", []):
-        print(f"source={source['path']} events={source['events']}")
+        print(f"source={source['path']} events={source['events']} normalized_events_sha256={source['normalized_events_sha256']}")
     for r in report["results"]:
         print(f"[{r['decision']}] {r['action']} <- {r['rule_id']} (risk={r['risk_score']}) {r['reason']}")
     for incident in report.get("incidents", []):

@@ -1,6 +1,7 @@
 """Current-run trace collection and the combined authority/incident CI gate."""
 from __future__ import annotations
 
+import hashlib
 import json
 import shlex
 from dataclasses import dataclass
@@ -20,6 +21,14 @@ DEFAULT_ACP_INSTALL = "git+https://github.com/myfastcat/ACP.git"
 class CollectedTrace:
     path: str
     events: tuple[dict, ...]
+
+
+def normalized_events_sha256(events) -> str:
+    """Identify the normalized observations used by a verdict."""
+    payload = json.dumps(
+        list(events), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def default_config(contract=".acp/authority.json"):
@@ -83,7 +92,12 @@ def run_check(root, config, contract):
     traces = collect_trace_files(base, config.get("trace_globs", DEFAULT_TRACE_GLOBS), fixtures)
     events, sources = [], []
     for trace in traces:
-        sources.append({"path": trace.path, "events": len(trace.events), "start_index": len(events)})
+        sources.append({
+            "path": trace.path,
+            "events": len(trace.events),
+            "start_index": len(events),
+            "normalized_events_sha256": normalized_events_sha256(trace.events),
+        })
         events.extend(trace.events)
     if not events:
         raise ValueError("No tool-call events found. Run current tests with the ACP bootstrap or configure trace_globs for current JSON artifacts; historical incidents are not observations.")
