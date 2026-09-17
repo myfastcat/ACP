@@ -31,6 +31,19 @@ def normalized_events_sha256(events) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def check_evidence_pack(report: dict) -> dict:
+    """Wrap one exact check result in a portable, tamper-evident evidence record."""
+    payload = json.dumps(
+        report, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    return {
+        "schema": "acp-check-evidence/v1",
+        "report_sha256": hashlib.sha256(payload).hexdigest(),
+        "report": report,
+        "check_command": "acp check --json",
+    }
+
+
 def default_config(contract=".acp/authority.json"):
     return {
         "schema_version": "1", "contract": contract,

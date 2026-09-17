@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from .discovery import discover_python_tools, draft_contract
 from .engine import ContractError, evaluate_trace, validate_contract
-from .integration import default_config, render_github_actions, run_check, exit_code
+from .integration import check_evidence_pack, default_config, render_github_actions, run_check, exit_code
 from .validation import object_value
 from .normalize import TraceNormalizationError, normalize_trace
 from .replay import ReplayError, add_assertion, dump as replay_dump, evaluate_fixture, evidence_pack, load as replay_load, normalize_incident
@@ -109,6 +109,7 @@ def main(argv=None) -> int:
     check = sub.add_parser("check", help="Run authority and committed incident regression gates")
     check.add_argument("--config", default=".acp/config.json")
     check.add_argument("--json", action="store_true")
+    check.add_argument("--evidence", help="Write an immutable-style evidence pack containing the exact report and its SHA-256")
 
     incident = sub.add_parser("incident", help="Convert agent incidents into deterministic regression fixtures")
     incident_sub = incident.add_subparsers(dest="incident_cmd", required=True)
@@ -209,6 +210,10 @@ def main(argv=None) -> int:
             contract = _load(str(contract_path))
             validate_contract(contract)
             report = run_check(root, config, contract)
+            if args.evidence:
+                if Path(args.evidence).exists():
+                    raise ValueError("Evidence path already exists; choose a new path to preserve the prior record")
+                _write(args.evidence, check_evidence_pack(report))
             if args.json:
                 print(json.dumps(report, indent=2))
             else:

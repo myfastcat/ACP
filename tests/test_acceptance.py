@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import hashlib
 
 from agent_control_plane.cli import main
 from agent_control_plane.integration import default_config, render_github_actions
@@ -72,6 +73,21 @@ class Acceptance(unittest.TestCase):
         self.write('.acp/traces/run.json', [{'action': 'read', 'context': {'id': 'C-2'}}])
         changed = json.loads(self.check(0))
         self.assertNotEqual(source['normalized_events_sha256'], changed['sources'][0]['normalized_events_sha256'])
+
+    def test_check_writes_tamper_evident_evidence_without_overwrite(self):
+        self.write('.acp/traces/run.json', [{'action': 'read', 'context': {'id': 'C-1'}}])
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(main(['check', '--json', '--evidence', 'acp-evidence.json']), 0)
+        printed = json.loads(stdout.getvalue())
+        saved = json.loads(Path('acp-evidence.json').read_text())
+        self.assertEqual(saved['schema'], 'acp-check-evidence/v1')
+        self.assertEqual(saved['report'], printed)
+        canonical = json.dumps(printed, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+        self.assertEqual(saved['report_sha256'], hashlib.sha256(canonical).hexdigest())
+        before = Path('acp-evidence.json').read_bytes()
+        self.assertEqual(main(['check', '--evidence', 'acp-evidence.json']), 4)
+        self.assertEqual(Path('acp-evidence.json').read_bytes(), before)
 
     def test_missing_empty_malformed_and_mixed_trace(self):
         self.check(4)
