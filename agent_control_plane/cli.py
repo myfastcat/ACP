@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from .discovery import discover_python_tools, draft_contract
 from .engine import ContractError, evaluate_trace, validate_contract
-from .integration import check_evidence_pack, default_config, render_github_actions, run_check, exit_code
+from .integration import check_evidence_pack, default_config, render_github_actions, run_check, exit_code, verify_check_evidence_pack
 from .validation import object_value
 from .normalize import TraceNormalizationError, normalize_trace
 from .replay import ReplayError, add_assertion, dump as replay_dump, evaluate_fixture, evidence_pack, load as replay_load, normalize_incident
@@ -110,6 +110,10 @@ def main(argv=None) -> int:
     check.add_argument("--config", default=".acp/config.json")
     check.add_argument("--json", action="store_true")
     check.add_argument("--evidence", help="Write an immutable-style evidence pack containing the exact report and its SHA-256")
+
+    verify_evidence = sub.add_parser("verify-evidence", help="Recompute and verify a saved acp check evidence pack")
+    verify_evidence.add_argument("evidence")
+    verify_evidence.add_argument("--json", action="store_true", help="Print the verified embedded report")
 
     incident = sub.add_parser("incident", help="Convert agent incidents into deterministic regression fixtures")
     incident_sub = incident.add_subparsers(dest="incident_cmd", required=True)
@@ -219,6 +223,15 @@ def main(argv=None) -> int:
             else:
                 _print_report(report)
             return report["summary"]["exit_code"]
+
+        if args.cmd == "verify-evidence":
+            pack = _load(args.evidence)
+            report = verify_check_evidence_pack(pack)
+            if args.json:
+                print(json.dumps(report, indent=2))
+            else:
+                print(f"VALID schema={pack['schema']} report_sha256={pack['report_sha256']}")
+            return 0
 
         contract = _load(args.contract)
         if args.cmd == "validate":

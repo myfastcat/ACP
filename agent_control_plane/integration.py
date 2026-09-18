@@ -31,17 +31,44 @@ def normalized_events_sha256(events) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def check_evidence_pack(report: dict) -> dict:
-    """Wrap one exact check result in a portable, tamper-evident evidence record."""
+def report_sha256(report: dict) -> str:
+    """Identify one exact canonical ACP check report."""
     payload = json.dumps(
         report, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def check_evidence_pack(report: dict) -> dict:
+    """Wrap one exact check result in a portable, tamper-evident evidence record."""
     return {
         "schema": "acp-check-evidence/v1",
-        "report_sha256": hashlib.sha256(payload).hexdigest(),
+        "report_sha256": report_sha256(report),
         "report": report,
         "check_command": "acp check --json",
     }
+
+
+def verify_check_evidence_pack(pack: dict) -> dict:
+    """Return the report only when a saved evidence pack is structurally intact."""
+    if not isinstance(pack, dict):
+        raise ValueError("Evidence pack must be a JSON object")
+    if pack.get("schema") != "acp-check-evidence/v1":
+        raise ValueError("Unsupported evidence schema")
+    report = pack.get("report")
+    if not isinstance(report, dict):
+        raise ValueError("Evidence pack report must be a JSON object")
+    recorded = pack.get("report_sha256")
+    if not isinstance(recorded, str) or len(recorded) != 64:
+        raise ValueError("Evidence pack report_sha256 must be a SHA-256 hex digest")
+    try:
+        int(recorded, 16)
+    except ValueError as exc:
+        raise ValueError("Evidence pack report_sha256 must be a SHA-256 hex digest") from exc
+    actual = report_sha256(report)
+    if recorded != actual:
+        raise ValueError(f"Evidence pack integrity check failed: expected {recorded}, calculated {actual}")
+    return report
 
 
 def default_config(contract=".acp/authority.json"):

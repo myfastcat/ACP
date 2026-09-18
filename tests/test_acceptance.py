@@ -89,6 +89,23 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(main(['check', '--evidence', 'acp-evidence.json']), 4)
         self.assertEqual(Path('acp-evidence.json').read_bytes(), before)
 
+    def test_verify_evidence_recomputes_hash_and_rejects_tampering(self):
+        self.write('.acp/traces/run.json', [{'action': 'read', 'context': {'id': 'C-1'}}])
+        self.assertEqual(main(['check', '--evidence', 'acp-evidence.json']), 0)
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(main(['verify-evidence', 'acp-evidence.json']), 0)
+        self.assertRegex(stdout.getvalue(), r'^VALID schema=acp-check-evidence/v1 report_sha256=[0-9a-f]{64}\n$')
+
+        pack = json.loads(Path('acp-evidence.json').read_text())
+        pack['report']['summary']['events'] += 1
+        self.write('tampered.json', pack)
+        self.assertEqual(main(['verify-evidence', 'tampered.json']), 4)
+
+        pack['schema'] = 'acp-check-evidence/v2'
+        self.write('unsupported.json', pack)
+        self.assertEqual(main(['verify-evidence', 'unsupported.json']), 4)
+
     def test_missing_empty_malformed_and_mixed_trace(self):
         self.check(4)
         config = default_config(); config['require_events'] = False
