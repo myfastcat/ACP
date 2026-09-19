@@ -38,6 +38,14 @@ Example reviewed rule (inside `rules` in `.acp/authority.json`):
 
 Conditions within a rule are ANDed. All matching rules participate; DENY outranks REQUIRE_APPROVAL, which outranks ALLOW. Operators: `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `exists`; fields use dot paths such as `context.amount`. The [authority example](examples/procurement-contract.json) demonstrates complete policies.
 
+For CI runs where every observed action must name its execution boundary, add dotted paths at the contract root:
+
+```json
+"required_event_fields": ["context.environment", "context.target"]
+```
+
+ACP evaluates these before ALLOW rules and returns DENY if any value is absent. This prevents a permissive action rule from passing an event whose test/live environment or intended target was never recorded. Existing contracts are unchanged until this optional guard is declared.
+
 ## Protect every change automatically
 
 The generated workflow executes these exact operations:

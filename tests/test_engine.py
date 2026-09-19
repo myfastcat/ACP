@@ -26,6 +26,19 @@ class EngineTest(unittest.TestCase):
     def test_default_fail_closed(self):
         self.assertEqual(evaluate(CONTRACT, {"action": "unknown"}).decision, Decision.DENY)
 
+    def test_required_event_fields_fail_closed_before_allow_rule(self):
+        scoped = {**CONTRACT, "required_event_fields": ["context.environment", "context.target"]}
+        missing = evaluate(scoped, {"action": "read", "context": {"environment": "test"}})
+        self.assertEqual(missing.decision, Decision.DENY)
+        self.assertEqual(missing.rule_id, "__required_event_fields__")
+        self.assertIn("context.target", missing.reason)
+
+        allowed = evaluate(scoped, {
+            "action": "read",
+            "context": {"environment": "test", "target": "fixture-company"},
+        })
+        self.assertEqual(allowed.decision, Decision.ALLOW)
+
     def test_deny_has_high_risk(self):
         self.assertGreaterEqual(evaluate(CONTRACT, {"action": "delete"}).risk_score, 60)
 
@@ -46,6 +59,9 @@ class EngineTest(unittest.TestCase):
     def test_invalid_contract(self):
         with self.assertRaises(ContractError):
             evaluate({"schema_version": "1", "agent": {}, "rules": []}, {"action": "x"})
+        for required in ("context.environment", ["context.environment", "context.environment"], ["environment"]):
+            with self.assertRaises(ContractError):
+                evaluate({**CONTRACT, "required_event_fields": required}, {"action": "read"})
 
 
 if __name__ == "__main__":

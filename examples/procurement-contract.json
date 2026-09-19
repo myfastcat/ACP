@@ -1,6 +1,7 @@
 {
   "schema_version": "1",
   "agent": {"name": "procurement-agent", "owner": "finance-ops"},
+  "required_event_fields": ["context.environment", "context.target"],
   "default": {"decision": "DENY", "reason": "Unrecognized action; fail closed."},
   "rules": [
     {

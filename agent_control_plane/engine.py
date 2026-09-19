@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import re
 from typing import Any
 from . import __version__
 from .model import Decision, Evaluation
@@ -64,6 +65,15 @@ def validate_contract(contract: dict[str, Any]) -> None:
         default = object_value(contract.get("default", {"decision": "DENY"}), "default")
         if default.get("decision", "DENY") not in {d.value for d in Decision}:
             raise ValueError("invalid default decision")
+        required_event_fields = contract.get("required_event_fields", [])
+        if not isinstance(required_event_fields, list):
+            raise ValueError("required_event_fields must be a list")
+        if len(set(required_event_fields)) != len(required_event_fields):
+            raise ValueError("required_event_fields must not contain duplicates")
+        for field in required_event_fields:
+            text_value(field, "required_event_fields entry")
+            if field == "action" or not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+", field):
+                raise ValueError("required_event_fields entries must be dotted event paths such as context.environment")
         rules = contract.get("rules")
         if not isinstance(rules, list) or not rules:
             raise ValueError("rules must be a non-empty list")
@@ -102,6 +112,17 @@ def validate_contract(contract: dict[str, Any]) -> None:
 def evaluate(contract: dict[str, Any], event: dict[str, Any]) -> Evaluation:
     validate_contract(contract)
     events_value([event])
+    missing = [field for field in contract.get("required_event_fields", []) if _get(event, field) is None]
+    if missing:
+        return Evaluation(
+            decision=Decision.DENY,
+            rule_id="__required_event_fields__",
+            reason=f"Missing required event field(s): {', '.join(missing)}; fail closed.",
+            risk_score=80,
+            blast_radius="external",
+            irreversible=False,
+            matched_conditions=(),
+        )
     matched = []
     for rule in contract["rules"]:
         if _conditions_match(event, rule.get("when", [])):
