@@ -39,6 +39,48 @@ class EngineTest(unittest.TestCase):
         })
         self.assertEqual(allowed.decision, Decision.ALLOW)
 
+    def test_missing_condition_fields_do_not_match_comparisons(self):
+        for op, target in (("eq", None), ("ne", "prod"), ("not_in", ["prod"])):
+            with self.subTest(op=op):
+                contract = {
+                    **CONTRACT,
+                    "rules": [{
+                        "id": f"allow-{op}",
+                        "decision": "ALLOW",
+                        "when": [{"field": "context.environment", "op": op, "value": target}],
+                    }],
+                }
+                result = evaluate(contract, {"action": "read", "context": {}})
+                self.assertEqual(result.decision, Decision.DENY)
+                self.assertEqual(result.rule_id, "__default__")
+
+    def test_exists_is_the_explicit_missing_field_operator(self):
+        missing_contract = {
+            **CONTRACT,
+            "rules": [{
+                "id": "allow-missing",
+                "decision": "ALLOW",
+                "when": [{"field": "context.environment", "op": "exists", "value": False}],
+            }],
+        }
+        self.assertEqual(
+            evaluate(missing_contract, {"action": "read", "context": {}}).decision,
+            Decision.ALLOW,
+        )
+
+        present_contract = {
+            **CONTRACT,
+            "rules": [{
+                "id": "allow-present",
+                "decision": "ALLOW",
+                "when": [{"field": "context.environment", "op": "exists", "value": True}],
+            }],
+        }
+        self.assertEqual(
+            evaluate(present_contract, {"action": "read", "context": {"environment": None}}).decision,
+            Decision.ALLOW,
+        )
+
     def test_deny_has_high_risk(self):
         self.assertGreaterEqual(evaluate(CONTRACT, {"action": "delete"}).risk_score, 60)
 
