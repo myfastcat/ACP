@@ -24,10 +24,25 @@ def _get(event: dict[str, Any], path: str) -> Any:
     return cur
 
 
+def _lookup(event: dict[str, Any], path: str) -> tuple[bool, Any]:
+    """Distinguish an absent path from a present field whose value is null."""
+    cur: Any = event
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return False, None
+        cur = cur[part]
+    return True, cur
+
+
 def _match_condition(event: dict[str, Any], cond: dict[str, Any]) -> bool:
-    value = _get(event, cond["field"])
+    present, value = _lookup(event, cond["field"])
     op = cond.get("op", "eq")
     target = cond.get("value")
+    if op == "exists": return present is bool(target)
+    # An omitted value is unknown, not evidence that a comparison succeeds.
+    # This especially prevents `ne` and `not_in` allow rules from matching
+    # incomplete observations. Use `exists:false` to match absence explicitly.
+    if not present: return False
     if op == "eq": return value == target
     if op == "ne": return value != target
     if op == "in": return value in target
@@ -36,7 +51,6 @@ def _match_condition(event: dict[str, Any], cond: dict[str, Any]) -> bool:
     if op == "gte": return value is not None and value >= target
     if op == "lt": return value is not None and value < target
     if op == "lte": return value is not None and value <= target
-    if op == "exists": return (value is not None) is bool(target)
     raise ContractError(f"Unsupported operator: {op}")
 
 
