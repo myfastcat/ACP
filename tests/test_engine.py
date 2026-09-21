@@ -26,6 +26,15 @@ class EngineTest(unittest.TestCase):
     def test_default_fail_closed(self):
         self.assertEqual(evaluate(CONTRACT, {"action": "unknown"}).decision, Decision.DENY)
 
+    def test_empty_or_missing_conditions_are_rejected(self):
+        for rule in (
+            {"id": "allow-all-by-accident", "decision": "ALLOW"},
+            {"id": "allow-all-by-accident", "decision": "ALLOW", "when": []},
+        ):
+            with self.subTest(rule=rule):
+                with self.assertRaisesRegex(ContractError, "rule.when must be a non-empty list"):
+                    evaluate({**CONTRACT, "rules": [rule]}, {"action": "delete_customer"})
+
     def test_required_event_fields_fail_closed_before_allow_rule(self):
         scoped = {**CONTRACT, "required_event_fields": ["context.environment", "context.target"]}
         missing = evaluate(scoped, {"action": "read", "context": {"environment": "test"}})
