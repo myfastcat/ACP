@@ -106,9 +106,9 @@ def validate_contract(contract: dict[str, Any]) -> None:
                 raise ValueError("invalid blast_radius")
             if type(rule.get("irreversible", False)) is not bool:
                 raise ValueError("irreversible must be boolean")
-            conditions = rule.get("when", [])
-            if not isinstance(conditions, list):
-                raise ValueError("rule.when must be a list")
+            conditions = rule.get("when")
+            if not isinstance(conditions, list) or not conditions:
+                raise ValueError("rule.when must be a non-empty list; use default for fallback behavior")
             for cond in conditions:
                 object_value(cond, "condition")
                 text_value(cond.get("field"), "condition.field")
