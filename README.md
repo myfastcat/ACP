@@ -36,7 +36,7 @@ Example reviewed rule (inside `rules` in `.acp/authority.json`):
 {"id":"customer-lookup","decision":"ALLOW","when":[{"field":"action","op":"eq","value":"lookup_customer"}]}
 ```
 
-Conditions within a rule are ANDed. All matching rules participate; DENY outranks REQUIRE_APPROVAL, which outranks ALLOW. Operators: `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `exists`; fields use dot paths such as `context.amount`. A missing field never satisfies a comparison or membership condition, including `ne` and `not_in`; use `exists:false` when absence itself is the intended condition. `exists` tests path presence, so a present JSON `null` still exists. The [authority example](examples/procurement-contract.json) demonstrates complete policies.
+Every rule must have a non-empty `when` list; use `default` for fallback behavior. This prevents an accidentally omitted or empty condition list from becoming an unconditional ALLOW. Conditions within a rule are ANDed. All matching rules participate; DENY outranks REQUIRE_APPROVAL, which outranks ALLOW. Operators: `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, `lte`, `exists`; fields use dot paths such as `context.amount`. A missing field never satisfies a comparison or membership condition, including `ne` and `not_in`; use `exists:false` when absence itself is the intended condition. `exists` tests path presence, so a present JSON `null` still exists. The [authority example](examples/procurement-contract.json) demonstrates complete policies.
 
 For CI runs where every observed action must name its execution boundary, add dotted paths at the contract root:
 
