@@ -34,6 +34,21 @@ def _lookup(event: dict[str, Any], path: str) -> tuple[bool, Any]:
     return True, cur
 
 
+def _json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/int equality leak."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is bool and type(right) is bool and left == right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, list):
+        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right))
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(_json_equal(left[key], right[key]) for key in left)
+    return left == right
+
+
 def _match_condition(event: dict[str, Any], cond: dict[str, Any]) -> bool:
     present, value = _lookup(event, cond["field"])
     op = cond.get("op", "eq")
@@ -43,10 +58,10 @@ def _match_condition(event: dict[str, Any], cond: dict[str, Any]) -> bool:
     # This especially prevents `ne` and `not_in` allow rules from matching
     # incomplete observations. Use `exists:false` to match absence explicitly.
     if not present: return False
-    if op == "eq": return value == target
-    if op == "ne": return value != target
-    if op == "in": return value in target
-    if op == "not_in": return value not in target
+    if op == "eq": return _json_equal(value, target)
+    if op == "ne": return not _json_equal(value, target)
+    if op == "in": return any(_json_equal(value, item) for item in target)
+    if op == "not_in": return not any(_json_equal(value, item) for item in target)
     if op == "gt": return value is not None and value > target
     if op == "gte": return value is not None and value >= target
     if op == "lt": return value is not None and value < target
