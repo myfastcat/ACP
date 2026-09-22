@@ -90,6 +90,30 @@ class EngineTest(unittest.TestCase):
             Decision.ALLOW,
         )
 
+    def test_boolean_and_number_conditions_do_not_compare_equal(self):
+        cases = (
+            ("eq", True, 1, Decision.DENY),
+            ("eq", 1, True, Decision.DENY),
+            ("ne", True, 1, Decision.ALLOW),
+            ("in", [True], 1, Decision.DENY),
+            ("not_in", [True], 1, Decision.ALLOW),
+            ("in", [1], True, Decision.DENY),
+        )
+        for op, target, observed, expected in cases:
+            with self.subTest(op=op, target=target, observed=observed):
+                contract = {
+                    **CONTRACT,
+                    "rules": [{
+                        "id": "strict-json-type",
+                        "decision": "ALLOW",
+                        "when": [{"field": "context.value", "op": op, "value": target}],
+                    }],
+                }
+                self.assertEqual(
+                    evaluate(contract, {"action": "read", "context": {"value": observed}}).decision,
+                    expected,
+                )
+
     def test_deny_has_high_risk(self):
         self.assertGreaterEqual(evaluate(CONTRACT, {"action": "delete"}).risk_score, 60)
 
