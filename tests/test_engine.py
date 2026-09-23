@@ -114,6 +114,39 @@ class EngineTest(unittest.TestCase):
                     expected,
                 )
 
+    def test_ordering_conditions_require_finite_json_numbers(self):
+        contract = {
+            **CONTRACT,
+            "rules": [{
+                "id": "numeric-limit",
+                "decision": "ALLOW",
+                "when": [{"field": "context.amount", "op": "gt", "value": 10}],
+            }],
+        }
+        self.assertEqual(
+            evaluate(contract, {"action": "read", "context": {"amount": 10.5}}).decision,
+            Decision.ALLOW,
+        )
+        for observed in (True, "20", None, float("nan"), float("inf")):
+            with self.subTest(observed=observed):
+                self.assertEqual(
+                    evaluate(contract, {"action": "read", "context": {"amount": observed}}).decision,
+                    Decision.DENY,
+                )
+
+        for target in (True, "10", None, float("nan"), float("inf")):
+            with self.subTest(target=target):
+                invalid = {
+                    **contract,
+                    "rules": [{
+                        "id": "invalid-numeric-limit",
+                        "decision": "ALLOW",
+                        "when": [{"field": "context.amount", "op": "gte", "value": target}],
+                    }],
+                }
+                with self.assertRaisesRegex(ContractError, "finite JSON number"):
+                    evaluate(invalid, {"action": "read", "context": {"amount": 20}})
+
     def test_deny_has_high_risk(self):
         self.assertGreaterEqual(evaluate(CONTRACT, {"action": "delete"}).risk_score, 60)
 

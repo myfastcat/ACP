@@ -1,6 +1,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import math
 import re
 from typing import Any
 from . import __version__
@@ -49,6 +50,11 @@ def _json_equal(left: Any, right: Any) -> bool:
     return left == right
 
 
+def _json_number(value: Any) -> bool:
+    """Accept only finite JSON numbers; booleans are a distinct JSON type."""
+    return type(value) in {int, float} and math.isfinite(value)
+
+
 def _match_condition(event: dict[str, Any], cond: dict[str, Any]) -> bool:
     present, value = _lookup(event, cond["field"])
     op = cond.get("op", "eq")
@@ -62,10 +68,13 @@ def _match_condition(event: dict[str, Any], cond: dict[str, Any]) -> bool:
     if op == "ne": return not _json_equal(value, target)
     if op == "in": return any(_json_equal(value, item) for item in target)
     if op == "not_in": return not any(_json_equal(value, item) for item in target)
-    if op == "gt": return value is not None and value > target
-    if op == "gte": return value is not None and value >= target
-    if op == "lt": return value is not None and value < target
-    if op == "lte": return value is not None and value <= target
+    if op in {"gt", "gte", "lt", "lte"}:
+        if not (_json_number(value) and _json_number(target)):
+            return False
+        if op == "gt": return value > target
+        if op == "gte": return value >= target
+        if op == "lt": return value < target
+        return value <= target
     raise ContractError(f"Unsupported operator: {op}")
 
 
@@ -134,6 +143,8 @@ def validate_contract(contract: dict[str, Any]) -> None:
                     raise ValueError("membership condition value must be a list")
                 if op == "exists" and type(cond.get("value")) is not bool:
                     raise ValueError("exists value must be boolean")
+                if op in {"gt", "gte", "lt", "lte"} and not _json_number(cond.get("value")):
+                    raise ValueError("ordering condition value must be a finite JSON number")
     except ValueError as exc:
         raise ContractError(str(exc)) from exc
 
