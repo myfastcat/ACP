@@ -89,8 +89,10 @@ def _risk(rule: dict[str, Any], event: dict[str, Any]) -> tuple[int, str, bool]:
     if irreversible:
         score += 25
     amount = _get(event, "context.amount")
-    if isinstance(amount, (int, float)):
-        score += min(20, int(amount // 1000))
+    if _json_number(amount):
+        # Amount can increase risk, but malformed, boolean, non-finite or
+        # negative observations must never crash evaluation or reduce risk.
+        score += max(0, min(20, int(amount // 1000)))
     return min(score, 100), blast, irreversible
 
 

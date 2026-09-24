@@ -150,6 +150,26 @@ class EngineTest(unittest.TestCase):
     def test_deny_has_high_risk(self):
         self.assertGreaterEqual(evaluate(CONTRACT, {"action": "delete"}).risk_score, 60)
 
+    def test_amount_risk_is_finite_nonnegative_and_fail_safe(self):
+        contract = {
+            **CONTRACT,
+            "rules": [{
+                "id": "allow-read",
+                "decision": "ALLOW",
+                "risk": 10,
+                "when": [{"field": "action", "value": "read"}],
+            }],
+        }
+        baseline = evaluate(contract, {"action": "read"}).risk_score
+        self.assertEqual(
+            evaluate(contract, {"action": "read", "context": {"amount": 2500}}).risk_score,
+            baseline + 2,
+        )
+        for amount in (-2500, True, "2500", None, float("nan"), float("inf")):
+            with self.subTest(amount=amount):
+                result = evaluate(contract, {"action": "read", "context": {"amount": amount}})
+                self.assertEqual(result.risk_score, baseline)
+
     def test_trace_ci_fails_on_deny(self):
         self.assertFalse(evaluate_trace(CONTRACT, [{"action": "read"}, {"action": "delete"}])["summary"]["ci_pass"])
 
