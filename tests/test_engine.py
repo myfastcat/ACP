@@ -187,9 +187,16 @@ class EngineTest(unittest.TestCase):
     def test_invalid_contract(self):
         with self.assertRaises(ContractError):
             evaluate({"schema_version": "1", "agent": {}, "rules": []}, {"action": "x"})
-        for required in ("context.environment", ["context.environment", "context.environment"], ["environment"]):
-            with self.assertRaises(ContractError):
-                evaluate({**CONTRACT, "required_event_fields": required}, {"action": "read"})
+        for required in (
+            "context.environment",
+            ["context.environment", "context.environment"],
+            ["environment"],
+            [["context", "environment"]],
+            [{"field": "context.environment"}],
+        ):
+            with self.subTest(required=required):
+                with self.assertRaises(ContractError):
+                    evaluate({**CONTRACT, "required_event_fields": required}, {"action": "read"})
 
 
 if __name__ == "__main__":

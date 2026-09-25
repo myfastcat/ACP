@@ -108,12 +108,12 @@ def validate_contract(contract: dict[str, Any]) -> None:
         required_event_fields = contract.get("required_event_fields", [])
         if not isinstance(required_event_fields, list):
             raise ValueError("required_event_fields must be a list")
-        if len(set(required_event_fields)) != len(required_event_fields):
-            raise ValueError("required_event_fields must not contain duplicates")
         for field in required_event_fields:
             text_value(field, "required_event_fields entry")
             if field == "action" or not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+", field):
                 raise ValueError("required_event_fields entries must be dotted event paths such as context.environment")
+        if len(set(required_event_fields)) != len(required_event_fields):
+            raise ValueError("required_event_fields must not contain duplicates")
         rules = contract.get("rules")
         if not isinstance(rules, list) or not rules:
             raise ValueError("rules must be a non-empty list")
