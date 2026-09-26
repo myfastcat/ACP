@@ -6,7 +6,7 @@ import re
 from typing import Any
 from . import __version__
 from .model import Decision, Evaluation
-from .validation import object_value, text_value, events_value
+from .validation import object_value, text_value, events_value, json_value
 
 DECISION_ORDER = {Decision.ALLOW: 0, Decision.REQUIRE_APPROVAL: 1, Decision.DENY: 2}
 BLAST_RISK = {"none": 0, "single_record": 5, "team": 12, "customer": 18, "organization": 25, "external": 30}
@@ -99,6 +99,7 @@ def _risk(rule: dict[str, Any], event: dict[str, Any]) -> tuple[int, str, bool]:
 def validate_contract(contract: dict[str, Any]) -> None:
     try:
         object_value(contract, "contract")
+        json_value(contract, "contract")
         if contract.get("schema_version") != "1":
             raise ValueError("schema_version must be '1'")
         text_value(object_value(contract.get("agent"), "agent").get("name"), "agent.name")

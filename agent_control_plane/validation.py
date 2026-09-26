@@ -1,6 +1,8 @@
 """Shared boundary validation: malformed input is an error, never a pass."""
 from __future__ import annotations
 
+import math
+
 
 def object_value(value, label):
     if not isinstance(value, dict):
@@ -14,9 +16,31 @@ def text_value(value, label):
     return value
 
 
+def json_value(value, label):
+    """Require a value that can be represented by strict JSON."""
+    if value is None or type(value) in {str, bool, int}:
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError(f"{label} must not contain NaN or Infinity")
+        return value
+    if isinstance(value, list):
+        for item in value:
+            json_value(item, label)
+        return value
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ValueError(f"{label} object keys must be strings")
+            json_value(item, label)
+        return value
+    raise ValueError(f"{label} must contain only JSON values")
+
+
 def events_value(value, label="events"):
     if not isinstance(value, list) or not value:
         raise ValueError(f"{label} must be a non-empty list of tool-call events")
+    json_value(value, label)
     for event in value:
         object_value(event, "event")
         text_value(event.get("action"), "event.action")

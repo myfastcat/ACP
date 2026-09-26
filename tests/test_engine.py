@@ -127,7 +127,7 @@ class EngineTest(unittest.TestCase):
             evaluate(contract, {"action": "read", "context": {"amount": 10.5}}).decision,
             Decision.ALLOW,
         )
-        for observed in (True, "20", None, float("nan"), float("inf")):
+        for observed in (True, "20", None):
             with self.subTest(observed=observed):
                 self.assertEqual(
                     evaluate(contract, {"action": "read", "context": {"amount": observed}}).decision,
@@ -144,8 +144,27 @@ class EngineTest(unittest.TestCase):
                         "when": [{"field": "context.amount", "op": "gte", "value": target}],
                     }],
                 }
-                with self.assertRaisesRegex(ContractError, "finite JSON number"):
+                expected_message = "NaN or Infinity" if isinstance(target, float) else "finite JSON number"
+                with self.assertRaisesRegex(ContractError, expected_message):
                     evaluate(invalid, {"action": "read", "context": {"amount": 20}})
+
+    def test_contracts_and_events_reject_nonfinite_json_values(self):
+        for nonfinite in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(source="contract", value=nonfinite):
+                invalid = {
+                    **CONTRACT,
+                    "rules": [{
+                        "id": "allow-not-equal",
+                        "decision": "ALLOW",
+                        "when": [{"field": "context.value", "op": "ne", "value": nonfinite}],
+                    }],
+                }
+                with self.assertRaisesRegex(ContractError, "NaN or Infinity"):
+                    evaluate(invalid, {"action": "read", "context": {"value": 0}})
+
+            with self.subTest(source="event", value=nonfinite):
+                with self.assertRaisesRegex(ValueError, "NaN or Infinity"):
+                    evaluate(CONTRACT, {"action": "read", "context": {"value": nonfinite}})
 
     def test_deny_has_high_risk(self):
         self.assertGreaterEqual(evaluate(CONTRACT, {"action": "delete"}).risk_score, 60)
@@ -165,7 +184,7 @@ class EngineTest(unittest.TestCase):
             evaluate(contract, {"action": "read", "context": {"amount": 2500}}).risk_score,
             baseline + 2,
         )
-        for amount in (-2500, True, "2500", None, float("nan"), float("inf")):
+        for amount in (-2500, True, "2500", None):
             with self.subTest(amount=amount):
                 result = evaluate(contract, {"action": "read", "context": {"amount": amount}})
                 self.assertEqual(result.risk_score, baseline)
