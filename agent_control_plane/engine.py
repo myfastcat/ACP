@@ -106,6 +106,8 @@ def validate_contract(contract: dict[str, Any]) -> None:
         default = object_value(contract.get("default", {"decision": "DENY"}), "default")
         if default.get("decision", "DENY") not in {d.value for d in Decision}:
             raise ValueError("invalid default decision")
+        if "reason" in default:
+            text_value(default["reason"], "default.reason")
         required_event_fields = contract.get("required_event_fields", [])
         if not isinstance(required_event_fields, list):
             raise ValueError("required_event_fields must be a list")
@@ -127,6 +129,10 @@ def validate_contract(contract: dict[str, Any]) -> None:
             seen.add(rid)
             if rule.get("decision") not in {d.value for d in Decision}:
                 raise ValueError(f"invalid decision in rule {rid}")
+            if "reason" in rule:
+                text_value(rule["reason"], f"rule {rid} reason")
+            if "approval_group" in rule:
+                text_value(rule["approval_group"], f"rule {rid} approval_group")
             if type(rule.get("risk", 10)) is not int or not 0 <= rule.get("risk", 10) <= 100:
                 raise ValueError("risk must be an integer from 0 to 100")
             if rule.get("blast_radius", "single_record") not in BLAST_RISK:

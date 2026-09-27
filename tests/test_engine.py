@@ -217,6 +217,28 @@ class EngineTest(unittest.TestCase):
                 with self.assertRaises(ContractError):
                     evaluate({**CONTRACT, "required_event_fields": required}, {"action": "read"})
 
+    def test_report_metadata_must_be_non_empty_text(self):
+        invalid_metadata = (
+            ({"default": {"decision": "DENY", "reason": {"unexpected": "object"}}}, "default.reason"),
+            ({"rules": [{
+                "id": "read",
+                "decision": "ALLOW",
+                "reason": ["unexpected", "list"],
+                "when": [{"field": "action", "value": "read"}],
+            }]}, "rule read reason"),
+            ({"rules": [{
+                "id": "approve",
+                "decision": "REQUIRE_APPROVAL",
+                "approval_group": "   ",
+                "when": [{"field": "action", "value": "write"}],
+            }]}, "rule approve approval_group"),
+        )
+        for override, message in invalid_metadata:
+            with self.subTest(message=message):
+                contract = {**CONTRACT, **override}
+                with self.assertRaisesRegex(ContractError, message):
+                    evaluate(contract, {"action": "read"})
+
 
 if __name__ == "__main__":
     unittest.main()
