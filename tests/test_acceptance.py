@@ -106,6 +106,20 @@ class Acceptance(unittest.TestCase):
         self.write('unsupported.json', pack)
         self.assertEqual(main(['verify-evidence', 'unsupported.json']), 4)
 
+    def test_verify_evidence_rejects_hash_consistent_non_reports(self):
+        for report in ({}, {"summary": {}, "results": [], "sources": [], "incidents": []}):
+            with self.subTest(report=report):
+                canonical = json.dumps(
+                    report, sort_keys=True, separators=(',', ':'), ensure_ascii=False
+                ).encode()
+                pack = {
+                    "schema": "acp-check-evidence/v1",
+                    "report_sha256": hashlib.sha256(canonical).hexdigest(),
+                    "report": report,
+                }
+                self.write('forged.json', pack)
+                self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
     def test_missing_empty_malformed_and_mixed_trace(self):
         self.check(4)
         config = default_config(); config['require_events'] = False

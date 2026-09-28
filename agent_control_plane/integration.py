@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 from .engine import evaluate_trace
 from .normalize import normalize_trace
 from .replay import evaluate_incident_files
-from .validation import object_value, patterns_value
+from .validation import object_value, patterns_value, text_value
 
 DEFAULT_TRACE_GLOBS = [".acp/traces/**/*.json"]
 DEFAULT_INCIDENT_GLOBS = [".acp/incidents/*.json"]
@@ -49,6 +50,36 @@ def check_evidence_pack(report: dict) -> dict:
     }
 
 
+def _validate_check_report(report: dict) -> None:
+    """Reject hash-consistent objects that are not ACP check reports."""
+    summary = object_value(report.get("summary"), "Evidence pack report.summary")
+    results = report.get("results")
+    sources = report.get("sources")
+    incidents = report.get("incidents")
+    if not isinstance(results, list):
+        raise ValueError("Evidence pack report.results must be a list")
+    if not isinstance(sources, list):
+        raise ValueError("Evidence pack report.sources must be a list")
+    if not isinstance(incidents, list):
+        raise ValueError("Evidence pack report.incidents must be a list")
+    if type(summary.get("events")) is not int or summary["events"] < 1:
+        raise ValueError("Evidence pack report.summary.events must be a positive integer")
+    if summary["events"] != len(results):
+        raise ValueError("Evidence pack report event count does not match results")
+    counts = object_value(summary.get("counts"), "Evidence pack report.summary.counts")
+    decisions = ("ALLOW", "REQUIRE_APPROVAL", "DENY")
+    if any(type(counts.get(name)) is not int or counts[name] < 0 for name in decisions):
+        raise ValueError("Evidence pack report counts must be non-negative integers")
+    if sum(counts[name] for name in decisions) != summary["events"]:
+        raise ValueError("Evidence pack report decision counts do not match events")
+    if type(summary.get("ci_pass")) is not bool or type(summary.get("exit_code")) is not int:
+        raise ValueError("Evidence pack report must include typed ci_pass and exit_code")
+    digest = summary.get("contract_sha256")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise ValueError("Evidence pack report contract_sha256 must be a lowercase SHA-256 digest")
+    text_value(summary.get("acp_version"), "Evidence pack report.summary.acp_version")
+
+
 def verify_check_evidence_pack(pack: dict) -> dict:
     """Return the report only when a saved evidence pack is structurally intact."""
     if not isinstance(pack, dict):
@@ -58,6 +89,7 @@ def verify_check_evidence_pack(pack: dict) -> dict:
     report = pack.get("report")
     if not isinstance(report, dict):
         raise ValueError("Evidence pack report must be a JSON object")
+    _validate_check_report(report)
     recorded = pack.get("report_sha256")
     if not isinstance(recorded, str) or len(recorded) != 64:
         raise ValueError("Evidence pack report_sha256 must be a SHA-256 hex digest")
