@@ -11,7 +11,7 @@ import unittest
 import hashlib
 
 from agent_control_plane.cli import main
-from agent_control_plane.integration import default_config, render_github_actions
+from agent_control_plane.integration import default_config, render_github_actions, report_sha256
 from agent_control_plane.zero_code_runner import run_zero_code
 
 CONTRACT = {"schema_version": "1", "agent": {"name": "support"},
@@ -119,6 +119,32 @@ class Acceptance(unittest.TestCase):
                 }
                 self.write('forged.json', pack)
                 self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
+    def test_verify_evidence_rejects_hash_consistent_impossible_exit_states(self):
+        for action, changes in (
+            ('read', {'exit_code': 2, 'ci_pass': False}),
+            ('delete', {'exit_code': 0, 'ci_pass': True}),
+            ('write', {'exit_code': 3, 'ci_pass': True}),
+            ('read', {'exit_code': 3, 'ci_pass': False}),
+        ):
+            with self.subTest(action=action, changes=changes):
+                self.write('.acp/traces/run.json', [{'action': action}])
+                main(['check', '--evidence', 'valid.json'])
+                pack = json.loads(Path('valid.json').read_text())
+                pack['report']['summary'].update(changes)
+                pack['report_sha256'] = report_sha256(pack['report'])
+                self.write('forged.json', pack)
+                self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+                Path('valid.json').unlink()
+
+    def test_verify_evidence_rejects_hash_consistent_incident_summary_mismatch(self):
+        self.write('.acp/traces/run.json', [{'action': 'read'}])
+        self.assertEqual(main(['check', '--evidence', 'valid.json']), 0)
+        pack = json.loads(Path('valid.json').read_text())
+        pack['report']['summary']['incident_regressions'] = 1
+        pack['report_sha256'] = report_sha256(pack['report'])
+        self.write('forged.json', pack)
+        self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
 
     def test_missing_empty_malformed_and_mixed_trace(self):
         self.check(4)
