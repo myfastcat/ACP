@@ -146,6 +146,20 @@ class Acceptance(unittest.TestCase):
         self.write('forged.json', pack)
         self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
 
+    def test_verify_evidence_rejects_hash_consistent_result_count_mismatch(self):
+        self.write('.acp/traces/run.json', [{'action': 'read'}])
+        self.assertEqual(main(['check', '--evidence', 'valid.json']), 0)
+        pack = json.loads(Path('valid.json').read_text())
+        pack['report']['results'][0]['decision'] = 'DENY'
+        pack['report_sha256'] = report_sha256(pack['report'])
+        self.write('forged.json', pack)
+        self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
+        pack['report']['results'][0]['decision'] = 'UNKNOWN'
+        pack['report_sha256'] = report_sha256(pack['report'])
+        self.write('forged.json', pack)
+        self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
     def test_missing_empty_malformed_and_mixed_trace(self):
         self.check(4)
         config = default_config(); config['require_events'] = False

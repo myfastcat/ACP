@@ -72,6 +72,15 @@ def _validate_check_report(report: dict) -> None:
         raise ValueError("Evidence pack report counts must be non-negative integers")
     if sum(counts[name] for name in decisions) != summary["events"]:
         raise ValueError("Evidence pack report decision counts do not match events")
+    observed_counts = {name: 0 for name in decisions}
+    for result in results:
+        item = object_value(result, "Evidence pack report result")
+        decision = item.get("decision")
+        if decision not in decisions:
+            raise ValueError("Evidence pack report results must use a supported decision")
+        observed_counts[decision] += 1
+    if observed_counts != {name: counts[name] for name in decisions}:
+        raise ValueError("Evidence pack report counts do not match result decisions")
     if type(summary.get("ci_pass")) is not bool or type(summary.get("exit_code")) is not int:
         raise ValueError("Evidence pack report must include typed ci_pass and exit_code")
     exit_status = summary["exit_code"]
