@@ -66,6 +66,32 @@ def _validate_check_report(report: dict) -> None:
         raise ValueError("Evidence pack report.summary.events must be a positive integer")
     if summary["events"] != len(results):
         raise ValueError("Evidence pack report event count does not match results")
+    expected_start = 0
+    seen_source_paths = set()
+    for source in sources:
+        item = object_value(source, "Evidence pack report source")
+        if set(item) != {
+            "path", "events", "start_index", "normalized_events_sha256"
+        }:
+            raise ValueError("Evidence pack report sources must use the ACP source schema")
+        path = text_value(item.get("path"), "Evidence pack report source.path")
+        if path in seen_source_paths:
+            raise ValueError("Evidence pack report source paths must be unique")
+        seen_source_paths.add(path)
+        events = item.get("events")
+        start_index = item.get("start_index")
+        if type(events) is not int or events < 1:
+            raise ValueError("Evidence pack report source.events must be a positive integer")
+        if type(start_index) is not int or start_index != expected_start:
+            raise ValueError("Evidence pack report source ranges must be contiguous")
+        digest = item.get("normalized_events_sha256")
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError(
+                "Evidence pack report source normalized_events_sha256 must be a lowercase SHA-256 digest"
+            )
+        expected_start += events
+    if expected_start != summary["events"]:
+        raise ValueError("Evidence pack report sources do not cover all events")
     counts = object_value(summary.get("counts"), "Evidence pack report.summary.counts")
     decisions = ("ALLOW", "REQUIRE_APPROVAL", "DENY")
     if any(type(counts.get(name)) is not int or counts[name] < 0 for name in decisions):

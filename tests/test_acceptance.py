@@ -155,6 +155,28 @@ class Acceptance(unittest.TestCase):
         self.write('forged.json', pack)
         self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
 
+    def test_verify_evidence_rejects_hash_consistent_source_range_forgery(self):
+        self.write('.acp/traces/first.json', [{'action': 'read'}])
+        self.write('.acp/traces/second.json', [{'action': 'read'}])
+        self.assertEqual(main(['check', '--evidence', 'valid.json']), 0)
+        original = json.loads(Path('valid.json').read_text())
+
+        mutations = (
+            lambda sources: sources.clear(),
+            lambda sources: sources[0].update(events=2),
+            lambda sources: sources[1].update(start_index=0),
+            lambda sources: sources[1].update(path=sources[0]['path']),
+            lambda sources: sources[0].update(normalized_events_sha256='NOT-A-DIGEST'),
+            lambda sources: sources[0].update(extra='untrusted'),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                pack = json.loads(json.dumps(original))
+                mutate(pack['report']['sources'])
+                pack['report_sha256'] = report_sha256(pack['report'])
+                self.write('forged.json', pack)
+                self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
         pack['report']['results'][0]['decision'] = 'UNKNOWN'
         pack['report_sha256'] = report_sha256(pack['report'])
         self.write('forged.json', pack)
