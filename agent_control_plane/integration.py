@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shlex
 from dataclasses import dataclass
@@ -52,6 +53,8 @@ def check_evidence_pack(report: dict) -> dict:
 
 def _validate_check_report(report: dict) -> None:
     """Reject hash-consistent objects that are not ACP check reports."""
+    if set(report) != {"summary", "results", "sources", "incidents"}:
+        raise ValueError("Evidence pack report must use the ACP check-report schema")
     summary = object_value(report.get("summary"), "Evidence pack report.summary")
     results = report.get("results")
     sources = report.get("sources")
@@ -99,14 +102,55 @@ def _validate_check_report(report: dict) -> None:
     if sum(counts[name] for name in decisions) != summary["events"]:
         raise ValueError("Evidence pack report decision counts do not match events")
     observed_counts = {name: 0 for name in decisions}
-    for result in results:
+    total_risk = 0
+    result_fields = {
+        "index", "action", "decision", "rule_id", "reason", "risk_score",
+        "blast_radius", "irreversible", "approval_group",
+    }
+    valid_blast_radius = {
+        "none", "single_record", "team", "customer", "organization",
+        "external", "unknown",
+    }
+    for expected_index, result in enumerate(results):
         item = object_value(result, "Evidence pack report result")
+        if set(item) != result_fields:
+            raise ValueError("Evidence pack report results must use the ACP result schema")
+        if type(item.get("index")) is not int or item["index"] != expected_index:
+            raise ValueError("Evidence pack report result indexes must be contiguous")
+        text_value(item.get("action"), "Evidence pack report result.action")
+        text_value(item.get("rule_id"), "Evidence pack report result.rule_id")
+        text_value(item.get("reason"), "Evidence pack report result.reason")
         decision = item.get("decision")
         if decision not in decisions:
             raise ValueError("Evidence pack report results must use a supported decision")
+        risk_score = item.get("risk_score")
+        if type(risk_score) is not int or not 0 <= risk_score <= 100:
+            raise ValueError("Evidence pack report result.risk_score must be an integer from 0 to 100")
+        if item.get("blast_radius") not in valid_blast_radius:
+            raise ValueError("Evidence pack report result.blast_radius is invalid")
+        if type(item.get("irreversible")) is not bool:
+            raise ValueError("Evidence pack report result.irreversible must be boolean")
+        approval_group = item.get("approval_group")
+        if approval_group is not None:
+            text_value(approval_group, "Evidence pack report result.approval_group")
+        total_risk += risk_score
         observed_counts[decision] += 1
     if observed_counts != {name: counts[name] for name in decisions}:
         raise ValueError("Evidence pack report counts do not match result decisions")
+    approval_load = summary.get("approval_load")
+    average_risk = summary.get("average_risk")
+    if (
+        type(approval_load) not in {int, float}
+        or not math.isfinite(approval_load)
+        or approval_load != round(counts["REQUIRE_APPROVAL"] / summary["events"], 3)
+    ):
+        raise ValueError("Evidence pack report approval_load does not match results")
+    if (
+        type(average_risk) not in {int, float}
+        or not math.isfinite(average_risk)
+        or average_risk != round(total_risk / summary["events"], 1)
+    ):
+        raise ValueError("Evidence pack report average_risk does not match results")
     if type(summary.get("ci_pass")) is not bool or type(summary.get("exit_code")) is not int:
         raise ValueError("Evidence pack report must include typed ci_pass and exit_code")
     exit_status = summary["exit_code"]

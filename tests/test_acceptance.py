@@ -182,6 +182,37 @@ class Acceptance(unittest.TestCase):
         self.write('forged.json', pack)
         self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
 
+    def test_verify_evidence_rejects_hash_consistent_result_schema_and_metric_forgery(self):
+        self.write('.acp/traces/run.json', [
+            {'action': 'read'},
+            {'action': 'write'},
+        ])
+        self.assertEqual(main(['check', '--evidence', 'valid.json']), 3)
+        original = json.loads(Path('valid.json').read_text())
+
+        mutations = (
+            lambda report: report.update(extra='untrusted'),
+            lambda report: report['results'][0].update(extra='untrusted'),
+            lambda report: report['results'][0].update(index=1),
+            lambda report: report['results'][0].update(action='   '),
+            lambda report: report['results'][0].update(rule_id=[]),
+            lambda report: report['results'][0].update(reason=''),
+            lambda report: report['results'][0].update(risk_score=True),
+            lambda report: report['results'][0].update(risk_score=101),
+            lambda report: report['results'][0].update(blast_radius='planet'),
+            lambda report: report['results'][0].update(irreversible=1),
+            lambda report: report['results'][0].update(approval_group=[]),
+            lambda report: report['summary'].update(approval_load=0),
+            lambda report: report['summary'].update(average_risk=99),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                pack = json.loads(json.dumps(original))
+                mutate(pack['report'])
+                pack['report_sha256'] = report_sha256(pack['report'])
+                self.write('forged.json', pack)
+                self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
     def test_missing_empty_malformed_and_mixed_trace(self):
         self.check(4)
         config = default_config(); config['require_events'] = False
