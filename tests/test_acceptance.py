@@ -146,6 +146,36 @@ class Acceptance(unittest.TestCase):
         self.write('forged.json', pack)
         self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
 
+    def test_verify_evidence_rejects_hash_consistent_incident_report_forgery(self):
+        self.write('.acp/traces/run.json', [{'action': 'read'}])
+        self.write('.acp/incidents/INC-1.json', {
+            'schema': 'acp-incident/v1',
+            'incident_id': 'INC-1',
+            'incident_events': [{'action': 'read'}],
+            'assertions': [{'type': 'must_occur', 'action': 'read'}],
+        })
+        self.assertEqual(main(['check', '--evidence', 'valid.json']), 0)
+        original = json.loads(Path('valid.json').read_text())
+
+        mutations = (
+            lambda item: item.update(extra='untrusted'),
+            lambda item: item.update(incident_id=' '),
+            lambda item: item.update(passed=False),
+            lambda item: item.update(failures=['']),
+            lambda item: item.update(event_count=2),
+            lambda item: item.update(incident_event_count=True),
+            lambda item: item.update(mode='incident_evidence'),
+            lambda item: item.update(fixture_sha256='NOT-A-DIGEST'),
+            lambda item: item.update(path=[]),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                pack = json.loads(json.dumps(original))
+                mutate(pack['report']['incidents'][0])
+                pack['report_sha256'] = report_sha256(pack['report'])
+                self.write('forged.json', pack)
+                self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
     def test_verify_evidence_rejects_hash_consistent_result_count_mismatch(self):
         self.write('.acp/traces/run.json', [{'action': 'read'}])
         self.assertEqual(main(['check', '--evidence', 'valid.json']), 0)

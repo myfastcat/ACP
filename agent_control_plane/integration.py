@@ -164,10 +164,47 @@ def _validate_check_report(report: dict) -> None:
     if summary["incident_regressions"] != len(incidents):
         raise ValueError("Evidence pack report incident count does not match incidents")
     failed = 0
+    seen_incident_ids = set()
+    seen_incident_paths = set()
+    incident_fields = {
+        "incident_id", "passed", "failures", "event_count",
+        "incident_event_count", "mode", "fixture_sha256", "path",
+    }
     for incident in incidents:
         item = object_value(incident, "Evidence pack report incident")
+        if set(item) != incident_fields:
+            raise ValueError("Evidence pack report incidents must use the ACP incident schema")
+        incident_id = text_value(
+            item.get("incident_id"), "Evidence pack report incident.incident_id"
+        )
+        path = text_value(item.get("path"), "Evidence pack report incident.path")
+        if incident_id in seen_incident_ids or path in seen_incident_paths:
+            raise ValueError("Evidence pack report incident identities and paths must be unique")
+        seen_incident_ids.add(incident_id)
+        seen_incident_paths.add(path)
         if type(item.get("passed")) is not bool:
             raise ValueError("Evidence pack report incidents must include typed passed values")
+        failures = item.get("failures")
+        if (
+            not isinstance(failures, list)
+            or any(not isinstance(value, str) or not value.strip() for value in failures)
+            or len(set(failures)) != len(failures)
+        ):
+            raise ValueError("Evidence pack report incident.failures must be unique non-empty strings")
+        if item["passed"] != (not failures):
+            raise ValueError("Evidence pack report incident passed state does not match failures")
+        if (
+            type(item.get("event_count")) is not int
+            or item["event_count"] != summary["events"]
+            or type(item.get("incident_event_count")) is not int
+            or item["incident_event_count"] < 1
+        ):
+            raise ValueError("Evidence pack report incident event counts are invalid")
+        if item.get("mode") != "current_observed_events":
+            raise ValueError("Evidence pack report incidents must evaluate current observed events")
+        fixture_digest = item.get("fixture_sha256")
+        if not isinstance(fixture_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", fixture_digest):
+            raise ValueError("Evidence pack report incident fixture_sha256 must be a lowercase SHA-256 digest")
         failed += not item["passed"]
     if summary["incident_failures"] != failed:
         raise ValueError("Evidence pack report incident failure count does not match incidents")
