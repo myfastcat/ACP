@@ -223,8 +223,12 @@ def verify_check_evidence_pack(pack: dict) -> dict:
     """Return the report only when a saved evidence pack is structurally intact."""
     if not isinstance(pack, dict):
         raise ValueError("Evidence pack must be a JSON object")
+    if set(pack) != {"schema", "report_sha256", "report", "check_command"}:
+        raise ValueError("Evidence pack must use the ACP check-evidence schema")
     if pack.get("schema") != "acp-check-evidence/v1":
         raise ValueError("Unsupported evidence schema")
+    if pack.get("check_command") != "acp check --json":
+        raise ValueError("Evidence pack check_command must identify the ACP JSON check")
     report = pack.get("report")
     if not isinstance(report, dict):
         raise ValueError("Evidence pack report must be a JSON object")

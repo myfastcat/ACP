@@ -106,6 +106,23 @@ class Acceptance(unittest.TestCase):
         self.write('unsupported.json', pack)
         self.assertEqual(main(['verify-evidence', 'unsupported.json']), 4)
 
+    def test_verify_evidence_rejects_hash_consistent_wrapper_forgery(self):
+        self.write('.acp/traces/run.json', [{'action': 'read'}])
+        self.assertEqual(main(['check', '--evidence', 'valid.json']), 0)
+        original = json.loads(Path('valid.json').read_text())
+
+        mutations = (
+            lambda pack: pack.update(extra='untrusted'),
+            lambda pack: pack.pop('check_command'),
+            lambda pack: pack.update(check_command='acp check --json --no-enforcement'),
+        )
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                pack = json.loads(json.dumps(original))
+                mutate(pack)
+                self.write('forged.json', pack)
+                self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
     def test_verify_evidence_rejects_hash_consistent_non_reports(self):
         for report in ({}, {"summary": {}, "results": [], "sources": [], "incidents": []}):
             with self.subTest(report=report):
