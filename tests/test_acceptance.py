@@ -239,6 +239,8 @@ class Acceptance(unittest.TestCase):
 
         mutations = (
             lambda report: report.update(extra='untrusted'),
+            lambda report: report['summary'].update(extra='untrusted'),
+            lambda report: report['summary']['counts'].update(UNKNOWN=0),
             lambda report: report['results'][0].update(extra='untrusted'),
             lambda report: report['results'][0].update(index=1),
             lambda report: report['results'][0].update(action='   '),

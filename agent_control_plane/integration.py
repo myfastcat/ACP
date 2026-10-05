@@ -65,6 +65,13 @@ def _validate_check_report(report: dict) -> None:
         raise ValueError("Evidence pack report.sources must be a list")
     if not isinstance(incidents, list):
         raise ValueError("Evidence pack report.incidents must be a list")
+    summary_fields = {
+        "acp_version", "contract_sha256", "events", "counts",
+        "approval_load", "average_risk", "ci_pass", "exit_code",
+        "incident_regressions", "incident_failures",
+    }
+    if set(summary) != summary_fields:
+        raise ValueError("Evidence pack report summary must use the ACP summary schema")
     if type(summary.get("events")) is not int or summary["events"] < 1:
         raise ValueError("Evidence pack report.summary.events must be a positive integer")
     if summary["events"] != len(results):
@@ -97,6 +104,8 @@ def _validate_check_report(report: dict) -> None:
         raise ValueError("Evidence pack report sources do not cover all events")
     counts = object_value(summary.get("counts"), "Evidence pack report.summary.counts")
     decisions = ("ALLOW", "REQUIRE_APPROVAL", "DENY")
+    if set(counts) != set(decisions):
+        raise ValueError("Evidence pack report counts must use the ACP decision schema")
     if any(type(counts.get(name)) is not int or counts[name] < 0 for name in decisions):
         raise ValueError("Evidence pack report counts must be non-negative integers")
     if sum(counts[name] for name in decisions) != summary["events"]:
