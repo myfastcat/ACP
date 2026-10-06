@@ -68,7 +68,7 @@ def _validate_check_report(report: dict) -> None:
     summary_fields = {
         "acp_version", "contract_sha256", "events", "counts",
         "approval_load", "average_risk", "ci_pass", "exit_code",
-        "incident_regressions", "incident_failures",
+        "incident_regressions", "incident_failures", "fail_on_approval",
     }
     if set(summary) != summary_fields:
         raise ValueError("Evidence pack report summary must use the ACP summary schema")
@@ -162,6 +162,8 @@ def _validate_check_report(report: dict) -> None:
         raise ValueError("Evidence pack report average_risk does not match results")
     if type(summary.get("ci_pass")) is not bool or type(summary.get("exit_code")) is not int:
         raise ValueError("Evidence pack report must include typed ci_pass and exit_code")
+    if type(summary.get("fail_on_approval")) is not bool:
+        raise ValueError("Evidence pack report.summary.fail_on_approval must be boolean")
     exit_status = summary["exit_code"]
     if exit_status not in (0, 2, 3):
         raise ValueError("Evidence pack report.summary.exit_code must be 0, 2, or 3")
@@ -218,10 +220,11 @@ def _validate_check_report(report: dict) -> None:
     if summary["incident_failures"] != failed:
         raise ValueError("Evidence pack report incident failure count does not match incidents")
     has_failure = counts["DENY"] > 0 or failed > 0
-    if has_failure != (exit_status == 2):
-        raise ValueError("Evidence pack report failure state does not match exit_code")
-    if exit_status == 3 and counts["REQUIRE_APPROVAL"] == 0:
-        raise ValueError("Evidence pack report approval exit requires an approval decision")
+    expected_exit = 2 if has_failure else (
+        3 if summary["fail_on_approval"] and counts["REQUIRE_APPROVAL"] > 0 else 0
+    )
+    if exit_status != expected_exit:
+        raise ValueError("Evidence pack report enforcement mode does not match exit_code")
     digest = summary.get("contract_sha256")
     if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ValueError("Evidence pack report contract_sha256 must be a lowercase SHA-256 digest")
@@ -331,6 +334,7 @@ def run_check(root, config, contract):
     summary = report["summary"]
     summary["incident_regressions"] = len(report["incidents"])
     summary["incident_failures"] = sum(not item["passed"] for item in report["incidents"])
+    summary["fail_on_approval"] = config.get("fail_on_approval", True)
     summary["exit_code"] = exit_code(report, config.get("fail_on_approval", True))
     summary["ci_pass"] = summary["exit_code"] == 0
     return report

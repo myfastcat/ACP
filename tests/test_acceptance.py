@@ -154,6 +154,28 @@ class Acceptance(unittest.TestCase):
                 self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
                 Path('valid.json').unlink()
 
+    def test_verify_evidence_binds_exit_status_to_approval_enforcement(self):
+        self.write('.acp/traces/run.json', [{'action': 'write'}])
+        self.assertEqual(main(['check', '--evidence', 'strict.json']), 3)
+        strict = json.loads(Path('strict.json').read_text())
+        self.assertTrue(strict['report']['summary']['fail_on_approval'])
+
+        forged = json.loads(json.dumps(strict))
+        forged['report']['summary'].update(exit_code=0, ci_pass=True)
+        forged['report_sha256'] = report_sha256(forged['report'])
+        self.write('forged.json', forged)
+        self.assertEqual(main(['verify-evidence', 'forged.json']), 4)
+
+        config = default_config()
+        config['fail_on_approval'] = False
+        self.write('.acp/config.json', config)
+        self.assertEqual(main([
+            'check', '--config', '.acp/config.json', '--evidence', 'permissive.json'
+        ]), 0)
+        permissive = json.loads(Path('permissive.json').read_text())
+        self.assertFalse(permissive['report']['summary']['fail_on_approval'])
+        self.assertEqual(main(['verify-evidence', 'permissive.json']), 0)
+
     def test_verify_evidence_rejects_hash_consistent_incident_summary_mismatch(self):
         self.write('.acp/traces/run.json', [{'action': 'read'}])
         self.assertEqual(main(['check', '--evidence', 'valid.json']), 0)
