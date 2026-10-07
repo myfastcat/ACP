@@ -7,7 +7,7 @@ import math
 import re
 import shlex
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .engine import evaluate_trace
 from .normalize import normalize_trace
@@ -39,6 +39,18 @@ def report_sha256(report: dict) -> str:
         report, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _canonical_repository_path(value: str) -> bool:
+    """Accept only normalized, repository-relative POSIX evidence paths."""
+    path = PurePosixPath(value)
+    return bool(
+        value == path.as_posix()
+        and not path.is_absolute()
+        and "\\" not in value
+        and path.parts
+        and all(part not in {"", ".", ".."} for part in path.parts)
+    )
 
 
 def check_evidence_pack(report: dict) -> dict:
@@ -85,6 +97,8 @@ def _validate_check_report(report: dict) -> None:
         }:
             raise ValueError("Evidence pack report sources must use the ACP source schema")
         path = text_value(item.get("path"), "Evidence pack report source.path")
+        if not _canonical_repository_path(path):
+            raise ValueError("Evidence pack report source.path must be repository-relative")
         if path in seen_source_paths:
             raise ValueError("Evidence pack report source paths must be unique")
         seen_source_paths.add(path)
@@ -189,6 +203,8 @@ def _validate_check_report(report: dict) -> None:
             item.get("incident_id"), "Evidence pack report incident.incident_id"
         )
         path = text_value(item.get("path"), "Evidence pack report incident.path")
+        if not _canonical_repository_path(path):
+            raise ValueError("Evidence pack report incident.path must be repository-relative")
         if incident_id in seen_incident_ids or path in seen_incident_paths:
             raise ValueError("Evidence pack report incident identities and paths must be unique")
         seen_incident_ids.add(incident_id)

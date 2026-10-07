@@ -206,6 +206,8 @@ class Acceptance(unittest.TestCase):
             lambda item: item.update(mode='incident_evidence'),
             lambda item: item.update(fixture_sha256='NOT-A-DIGEST'),
             lambda item: item.update(path=[]),
+            lambda item: item.update(path='../INC-1.json'),
+            lambda item: item.update(path='/tmp/INC-1.json'),
         )
         for mutate in mutations:
             with self.subTest(mutation=mutate):
@@ -237,6 +239,9 @@ class Acceptance(unittest.TestCase):
             lambda sources: sources[1].update(path=sources[0]['path']),
             lambda sources: sources[0].update(normalized_events_sha256='NOT-A-DIGEST'),
             lambda sources: sources[0].update(extra='untrusted'),
+            lambda sources: sources[0].update(path='../run.json'),
+            lambda sources: sources[0].update(path='/tmp/run.json'),
+            lambda sources: sources[0].update(path='.acp\\traces\\run.json'),
         )
         for mutate in mutations:
             with self.subTest(mutation=mutate):
