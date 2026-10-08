@@ -6,6 +6,7 @@ import json
 import math
 import re
 import shlex
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -46,10 +47,15 @@ def _canonical_repository_path(value: str) -> bool:
     path = PurePosixPath(value)
     return bool(
         value == path.as_posix()
+        and value == unicodedata.normalize("NFC", value)
         and not path.is_absolute()
         and "\\" not in value
+        and not any(unicodedata.category(char).startswith("C") for char in value)
         and path.parts
-        and all(part not in {"", ".", ".."} for part in path.parts)
+        and all(
+            part not in {"", ".", ".."} and part == part.strip()
+            for part in path.parts
+        )
     )
 
 

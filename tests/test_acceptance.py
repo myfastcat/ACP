@@ -208,6 +208,9 @@ class Acceptance(unittest.TestCase):
             lambda item: item.update(path=[]),
             lambda item: item.update(path='../INC-1.json'),
             lambda item: item.update(path='/tmp/INC-1.json'),
+            lambda item: item.update(path='.acp/incidents/INC-1.json\n'),
+            lambda item: item.update(path='.acp/incidents/ INC-1.json'),
+            lambda item: item.update(path='.acp/incidents/Cafe\u0301.json'),
         )
         for mutate in mutations:
             with self.subTest(mutation=mutate):
@@ -242,6 +245,9 @@ class Acceptance(unittest.TestCase):
             lambda sources: sources[0].update(path='../run.json'),
             lambda sources: sources[0].update(path='/tmp/run.json'),
             lambda sources: sources[0].update(path='.acp\\traces\\run.json'),
+            lambda sources: sources[0].update(path='.acp/traces/run.json\u0000'),
+            lambda sources: sources[0].update(path='.acp/traces/run.json '),
+            lambda sources: sources[0].update(path='.acp/traces/Cafe\u0301.json'),
         )
         for mutate in mutations:
             with self.subTest(mutation=mutate):
