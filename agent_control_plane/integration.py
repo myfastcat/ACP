@@ -59,6 +59,23 @@ def _canonical_repository_path(value: str) -> bool:
     )
 
 
+def _canonical_evidence_text(value: str) -> bool:
+    """Accept portable single-line text for human-audited evidence fields."""
+    return bool(
+        value
+        and value == value.strip()
+        and value == unicodedata.normalize("NFC", value)
+        and not any(unicodedata.category(char).startswith("C") for char in value)
+    )
+
+
+def _evidence_text(value, label: str) -> str:
+    value = text_value(value, label)
+    if not _canonical_evidence_text(value):
+        raise ValueError(f"{label} must be canonical single-line text")
+    return value
+
+
 def check_evidence_pack(report: dict) -> dict:
     """Wrap one exact check result in a portable, tamper-evident evidence record."""
     return {
@@ -146,9 +163,9 @@ def _validate_check_report(report: dict) -> None:
             raise ValueError("Evidence pack report results must use the ACP result schema")
         if type(item.get("index")) is not int or item["index"] != expected_index:
             raise ValueError("Evidence pack report result indexes must be contiguous")
-        text_value(item.get("action"), "Evidence pack report result.action")
-        text_value(item.get("rule_id"), "Evidence pack report result.rule_id")
-        text_value(item.get("reason"), "Evidence pack report result.reason")
+        _evidence_text(item.get("action"), "Evidence pack report result.action")
+        _evidence_text(item.get("rule_id"), "Evidence pack report result.rule_id")
+        _evidence_text(item.get("reason"), "Evidence pack report result.reason")
         decision = item.get("decision")
         if decision not in decisions:
             raise ValueError("Evidence pack report results must use a supported decision")
@@ -161,7 +178,7 @@ def _validate_check_report(report: dict) -> None:
             raise ValueError("Evidence pack report result.irreversible must be boolean")
         approval_group = item.get("approval_group")
         if approval_group is not None:
-            text_value(approval_group, "Evidence pack report result.approval_group")
+            _evidence_text(approval_group, "Evidence pack report result.approval_group")
         total_risk += risk_score
         observed_counts[decision] += 1
     if observed_counts != {name: counts[name] for name in decisions}:
@@ -205,7 +222,7 @@ def _validate_check_report(report: dict) -> None:
         item = object_value(incident, "Evidence pack report incident")
         if set(item) != incident_fields:
             raise ValueError("Evidence pack report incidents must use the ACP incident schema")
-        incident_id = text_value(
+        incident_id = _evidence_text(
             item.get("incident_id"), "Evidence pack report incident.incident_id"
         )
         path = text_value(item.get("path"), "Evidence pack report incident.path")
@@ -220,10 +237,15 @@ def _validate_check_report(report: dict) -> None:
         failures = item.get("failures")
         if (
             not isinstance(failures, list)
-            or any(not isinstance(value, str) or not value.strip() for value in failures)
+            or any(
+                not isinstance(value, str) or not _canonical_evidence_text(value)
+                for value in failures
+            )
             or len(set(failures)) != len(failures)
         ):
-            raise ValueError("Evidence pack report incident.failures must be unique non-empty strings")
+            raise ValueError(
+                "Evidence pack report incident.failures must be unique canonical single-line strings"
+            )
         if item["passed"] != (not failures):
             raise ValueError("Evidence pack report incident passed state does not match failures")
         if (
@@ -250,7 +272,7 @@ def _validate_check_report(report: dict) -> None:
     digest = summary.get("contract_sha256")
     if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
         raise ValueError("Evidence pack report contract_sha256 must be a lowercase SHA-256 digest")
-    text_value(summary.get("acp_version"), "Evidence pack report.summary.acp_version")
+    _evidence_text(summary.get("acp_version"), "Evidence pack report.summary.acp_version")
 
 
 def verify_check_evidence_pack(pack: dict) -> dict:
