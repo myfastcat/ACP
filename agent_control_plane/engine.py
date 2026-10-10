@@ -10,6 +10,8 @@ from .validation import object_value, text_value, events_value, json_value
 
 DECISION_ORDER = {Decision.ALLOW: 0, Decision.REQUIRE_APPROVAL: 1, Decision.DENY: 2}
 BLAST_RISK = {"none": 0, "single_record": 5, "team": 12, "customer": 18, "organization": 25, "external": 30}
+RULE_FIELDS = {"id", "decision", "when", "reason", "approval_group", "risk", "blast_radius", "irreversible"}
+CONDITION_FIELDS = {"field", "op", "value"}
 
 
 class ContractError(ValueError):
@@ -123,6 +125,9 @@ def validate_contract(contract: dict[str, Any]) -> None:
         seen = set()
         for rule in rules:
             object_value(rule, "rule")
+            unknown_rule_fields = sorted(set(rule) - RULE_FIELDS)
+            if unknown_rule_fields:
+                raise ValueError(f"unknown rule field(s): {', '.join(unknown_rule_fields)}")
             rid = text_value(rule.get("id"), "rule.id")
             if rid in seen:
                 raise ValueError("each rule.id must be unique")
@@ -144,7 +149,12 @@ def validate_contract(contract: dict[str, Any]) -> None:
                 raise ValueError("rule.when must be a non-empty list; use default for fallback behavior")
             for cond in conditions:
                 object_value(cond, "condition")
+                unknown_condition_fields = sorted(set(cond) - CONDITION_FIELDS)
+                if unknown_condition_fields:
+                    raise ValueError(f"unknown condition field(s): {', '.join(unknown_condition_fields)}")
                 text_value(cond.get("field"), "condition.field")
+                if "value" not in cond:
+                    raise ValueError("condition.value is required")
                 op = cond.get("op", "eq")
                 if op not in {"eq", "ne", "in", "not_in", "gt", "gte", "lt", "lte", "exists"}:
                     raise ValueError(f"Unsupported operator: {op}")

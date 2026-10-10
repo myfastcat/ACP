@@ -35,6 +35,29 @@ class EngineTest(unittest.TestCase):
                 with self.assertRaisesRegex(ContractError, "rule.when must be a non-empty list"):
                     evaluate({**CONTRACT, "rules": [rule]}, {"action": "delete_customer"})
 
+    def test_unknown_or_incomplete_rule_fields_are_rejected(self):
+        invalid_rules = (
+            (
+                {"id": "typo-risk", "decision": "ALLOW", "risks": 1,
+                 "when": [{"field": "action", "value": "read"}]},
+                "unknown rule field.*risks",
+            ),
+            (
+                {"id": "typo-operator", "decision": "ALLOW",
+                 "when": [{"field": "action", "operator": "eq", "value": "read"}]},
+                "unknown condition field.*operator",
+            ),
+            (
+                {"id": "missing-value", "decision": "ALLOW",
+                 "when": [{"field": "action"}]},
+                "condition.value is required",
+            ),
+        )
+        for rule, message in invalid_rules:
+            with self.subTest(rule=rule):
+                with self.assertRaisesRegex(ContractError, message):
+                    evaluate({**CONTRACT, "rules": [rule]}, {"action": "read"})
+
     def test_required_event_fields_fail_closed_before_allow_rule(self):
         scoped = {**CONTRACT, "required_event_fields": ["context.environment", "context.target"]}
         missing = evaluate(scoped, {"action": "read", "context": {"environment": "test"}})
